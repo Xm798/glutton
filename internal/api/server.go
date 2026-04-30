@@ -42,6 +42,12 @@ func New(deps Deps) *Server {
 	g.GET("/config", ch.get)
 	g.PUT("/config", ch.put)
 
+	sh := &sourcesHandlers{store: deps.Store}
+	g.GET("/sources", sh.list)
+	g.POST("/sources", sh.create)
+	g.PUT("/sources/:id", sh.update)
+	g.DELETE("/sources/:id", sh.delete)
+
 	// /api/control gets a tighter rate limit per spec §9 (5 req/s per IP).
 	// Routes are wired in Task 17; here we only set up the rate-limited group.
 	control := g.Group("/control",
