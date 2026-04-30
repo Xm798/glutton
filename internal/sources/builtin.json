@@ -1,0 +1,9 @@
+[
+  { "name": "Hetzner 100MB",      "url": "https://speed.hetzner.de/100MB.bin",       "weight": 5 },
+  { "name": "Hetzner 1GB",        "url": "https://speed.hetzner.de/1GB.bin",         "weight": 3 },
+  { "name": "Cloudflare 100MB",   "url": "https://speed.cloudflare.com/__down?bytes=104857600", "weight": 5 },
+  { "name": "OVH 100MB",          "url": "http://proof.ovh.net/files/100Mb.dat",     "weight": 4 },
+  { "name": "OVH 1GB",            "url": "http://proof.ovh.net/files/1Gb.dat",       "weight": 2 },
+  { "name": "TUNA Ubuntu ISO",    "url": "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/24.04/ubuntu-24.04-desktop-amd64.iso", "weight": 3 },
+  { "name": "USTC Debian ISO",    "url": "https://mirrors.ustc.edu.cn/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso", "weight": 3 }
+]
