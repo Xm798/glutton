@@ -17,3 +17,12 @@ func TestVersionEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"version"`)
 }
+
+func TestMetricsEndpoint(t *testing.T) {
+	srv := api.New(api.Deps{})
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "glutton_")
+}

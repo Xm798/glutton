@@ -40,6 +40,8 @@ func New(deps Deps) *Server {
 	e.Use(middleware.RequestID())
 	e.Use(AuthMiddleware())
 
+	e.GET("/metrics", echo.WrapHandler(metricsHandler))
+
 	g := e.Group("/api")
 	g.GET("/version", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
