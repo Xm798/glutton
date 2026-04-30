@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -78,6 +79,19 @@ func run() error {
 
 	var todayBytes, monthBytes atomic.Int64
 
+	// Recover counters from DB so a restart mid-day doesn't wipe Today / This
+	// month while the per-source totals (DB-backed) keep marching.
+	{
+		now := time.Now()
+		if d, err := store.SumTrafficSince(db, store.DayStart(now, loc)); err == nil {
+			todayBytes.Store(d)
+		}
+		if m, err := store.SumTrafficSince(db, store.MonthStart(now, loc)); err == nil {
+			monthBytes.Store(m)
+		}
+		logger.Info("seeded counters", "today_bytes", todayBytes.Load(), "month_bytes", monthBytes.Load())
+	}
+
 	var lastPickedSourceID atomic.Int64
 	lastPickedSourceID.Store(-1)
 
@@ -105,13 +119,13 @@ func run() error {
 				UserAgent: pickUA(c.UA, rt.DefaultUA),
 			}, true
 		},
+		OnProgress: func(n int64) {
+			todayBytes.Add(n)
+			monthBytes.Add(n)
+		},
 		OnResult: func(j consumer.Job, n int64, rtt time.Duration, err error) {
 			if n > 0 {
-				todayBytes.Add(n)
-				monthBytes.Add(n)
-				_ = store.AddTraffic(db,
-					time.Now().In(loc).Truncate(time.Hour).Unix(),
-					j.SourceID, n)
+				_ = store.AddTraffic(db, store.HourBucket(time.Now().In(loc)), j.SourceID, n)
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
 				if rtt > 0 {
 					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
@@ -173,8 +187,8 @@ func run() error {
 	})
 
 	srv := api.New(api.Deps{
-		Store: db, Live: live, State: state, Bus: bus,
-		Burst: burstImpl{state: state},
+		Store: db, Live: live, State: state, Bus: bus, Loc: loc,
+		Burst: &burstImpl{state: state, bytesUsed: todayBytes.Load, bus: bus},
 	})
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -280,24 +294,101 @@ func pickUA(perSource, def string) string {
 	return def
 }
 
-// burstImpl flips the state to Running for d minutes regardless of cron window.
-// Quota enforcement still applies because the scheduler's Tick will re-evaluate.
-type burstImpl struct{ state *scheduler.State }
+// burstImpl runs the scheduler regardless of cron window until the minute or
+// byte cap hits (cap of 0 = no limit on that dimension; the handler enforces
+// "at least one non-zero"). Quotas still apply via scheduler Tick.
+//
+// Generation token: a new Burst cancels the previous goroutine; only the
+// latest generation may Deactivate, otherwise a stale goroutine waking after
+// supersession would undo the new burst's Activate.
+type burstImpl struct {
+	state     *scheduler.State
+	bytesUsed func() int64
+	bus       *events.Bus
 
-func (b burstImpl) Burst(minutes int) {
+	mu     sync.Mutex
+	gen    int64
+	cancel context.CancelFunc
+}
+
+func (b *burstImpl) Burst(minutes int, bytes int64) {
+	b.mu.Lock()
+	if b.cancel != nil {
+		b.cancel()
+	}
+	b.gen++
+	myGen := b.gen
+	ctx, cancel := context.WithCancel(context.Background())
+	b.cancel = cancel
+	b.mu.Unlock()
+
 	_ = b.state.Activate()
+	startBytes := b.bytesUsed()
+	if b.bus != nil {
+		b.bus.Publish(events.Event{
+			Type:    "burst_started",
+			Level:   "info",
+			Message: "manual burst started",
+			Data:    map[string]any{"minutes": minutes, "bytes": bytes},
+		})
+	}
+
 	go func() {
-		time.Sleep(time.Duration(minutes) * time.Minute)
-		_ = b.state.Deactivate()
+		var timeoutC <-chan time.Time
+		if minutes > 0 {
+			tm := time.NewTimer(time.Duration(minutes) * time.Minute)
+			defer tm.Stop()
+			timeoutC = tm.C
+		}
+		var pollC <-chan time.Time
+		if bytes > 0 {
+			poll := time.NewTicker(500 * time.Millisecond)
+			defer poll.Stop()
+			pollC = poll.C
+		}
+
+		reason := "expired"
+		for done := false; !done; {
+			if bytes > 0 && b.bytesUsed()-startBytes >= bytes {
+				reason = "bytes_cap"
+				break
+			}
+			select {
+			case <-ctx.Done():
+				reason = "superseded"
+				done = true
+			case <-timeoutC:
+				done = true
+			case <-pollC:
+			}
+		}
+
+		b.mu.Lock()
+		isLatest := b.gen == myGen
+		if isLatest {
+			b.cancel = nil
+		}
+		b.mu.Unlock()
+		if isLatest {
+			_ = b.state.Deactivate()
+			if b.bus != nil {
+				b.bus.Publish(events.Event{
+					Type:    "burst_ended",
+					Level:   "info",
+					Message: "manual burst ended: " + reason,
+					Data: map[string]any{
+						"reason": reason,
+						"bytes":  b.bytesUsed() - startBytes,
+					},
+				})
+			}
+		}
 	}()
 }
 
-// runRateSampler derives current_rate_bps from the delta of cumulative
-// today-bytes over a sliding ~5s window, sampled once per second. This
-// counts bytes from in-flight downloads (via todayBytes.Add at each chunk's
-// completion) rather than only at job boundaries — the prior approach
-// under-reported when long-running jobs were active and over-reported on
-// burst job completions.
+// runRateSampler reports current_rate_bps as delta(today-bytes)/elapsed over
+// a sliding 5s window, sampled at 1Hz. OnProgress feeds today-bytes per chunk
+// so this reflects active downloads, not just completed jobs.
 func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.LiveCounters) {
 	const window = 5
 	type sample struct {
@@ -313,16 +404,23 @@ func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.L
 			return
 		case now := <-t.C:
 			cur := today.Load()
-			ring = append(ring, sample{ts: now, bytes: cur})
+			// In-place head-shift keeps cap bounded; ring = ring[1:] would leak.
 			cutoff := now.Add(-time.Duration(window) * time.Second)
-			for len(ring) > 1 && ring[0].ts.Before(cutoff) {
-				ring = ring[1:]
+			drop := 0
+			for drop < len(ring) && ring[drop].ts.Before(cutoff) {
+				drop++
 			}
+			if drop > 0 {
+				if drop < len(ring) {
+					copy(ring, ring[drop:])
+				}
+				ring = ring[:len(ring)-drop]
+			}
+			ring = append(ring, sample{ts: now, bytes: cur})
 			var rate int64
 			if len(ring) >= 2 {
 				oldest := ring[0]
-				elapsed := now.Sub(oldest.ts).Seconds()
-				if elapsed > 0 {
+				if elapsed := now.Sub(oldest.ts).Seconds(); elapsed > 0 {
 					rate = int64(float64(cur-oldest.bytes) / elapsed)
 				}
 			}
@@ -361,8 +459,7 @@ func runRetentionAndResets(
 				bus.Publish(events.Event{Type: "daily_reset", Level: "info", Message: "daily quota reset"})
 				lastDay = d
 				// Purge buckets older than 30 days.
-				cutoff := now.Add(-30 * 24 * time.Hour).Truncate(time.Hour).Unix()
-				_ = store.PurgeTrafficBefore(db, cutoff)
+				_ = store.PurgeTrafficBefore(db, store.HourBucket(now.Add(-30*24*time.Hour)))
 				// Purge events older than 90 days.
 				_ = store.PurgeEventsBefore(db, now.Add(-90*24*time.Hour).Unix())
 			}

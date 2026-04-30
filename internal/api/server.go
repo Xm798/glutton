@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/cyrus/glutton/internal/events"
 	"github.com/cyrus/glutton/internal/scheduler"
@@ -20,12 +21,14 @@ type Deps struct {
 	State *scheduler.State
 	Burst BurstController
 	Bus   *events.Bus
+	Loc   *time.Location // used by stats handlers to default `since` to today midnight
 }
 
 // BurstController allows /api/control/burst to grant a temporary window
-// override. Implemented in main; stub-friendly for tests.
+// override, capped by elapsed minutes and/or downloaded bytes (whichever
+// hits first). Implemented in main; stub-friendly for tests.
 type BurstController interface {
-	Burst(minutes int)
+	Burst(minutes int, bytes int64)
 }
 
 type Server struct {
@@ -61,7 +64,7 @@ func New(deps Deps) *Server {
 	g.PUT("/sources/:id", sh.update)
 	g.DELETE("/sources/:id", sh.delete)
 
-	stats := &statsHandlers{store: deps.Store, counter: deps.Live}
+	stats := &statsHandlers{store: deps.Store, counter: deps.Live, loc: deps.Loc}
 	g.GET("/stats/live", stats.live)
 	g.GET("/stats/history", stats.history)
 	g.GET("/stats/sources", stats.bySource)

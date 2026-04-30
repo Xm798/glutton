@@ -14,7 +14,9 @@ type PoolConfig struct {
 	Client   *http.Client
 	Limiter  *rate.Limiter
 	Provider func(ctx context.Context) (Job, bool) // false = no job available; worker idles briefly
-	OnResult func(j Job, bytes int64, rtt time.Duration, err error)
+	// OnProgress fires per chunk as bytes arrive. OnResult fires once at job end.
+	OnProgress func(bytes int64)
+	OnResult   func(j Job, bytes int64, rtt time.Duration, err error)
 }
 
 type Pool struct {
@@ -58,7 +60,7 @@ func (p *Pool) runWorker(ctx context.Context) {
 			}
 			continue
 		}
-		n, rtt, err := p.d.Run(ctx, job)
+		n, rtt, err := p.d.Run(ctx, job, p.cfg.OnProgress)
 		if p.cfg.OnResult != nil {
 			p.cfg.OnResult(job, n, rtt, err)
 		}

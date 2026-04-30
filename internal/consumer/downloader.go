@@ -31,7 +31,8 @@ func NewDownloader(client *http.Client, limiter *rate.Limiter) *Downloader {
 // Run streams the response body into io.Discard under the rate limiter.
 // Returns bytes drained, TTFB (time to first byte), and any error.
 // Returns nil error on context cancellation after partial drain.
-func (d *Downloader) Run(ctx context.Context, j Job) (int64, time.Duration, error) {
+// onProgress, if non-nil, fires with each chunk's byte count.
+func (d *Downloader) Run(ctx context.Context, j Job, onProgress func(int64)) (int64, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.URL, nil)
 	if err != nil {
 		return 0, 0, fmt.Errorf("new request: %w", err)
@@ -65,6 +66,9 @@ func (d *Downloader) Run(ctx context.Context, j Job) (int64, time.Duration, erro
 		total += int64(n)
 		if n > 0 {
 			_, _ = io.Discard.Write(buf[:n]) // explicit discard for clarity
+			if onProgress != nil {
+				onProgress(int64(n))
+			}
 			if firstRead {
 				ttfb = time.Since(ttfbStart)
 				firstRead = false

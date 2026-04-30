@@ -18,6 +18,9 @@ type LiveCounters struct {
 func (l *LiveCounters) Set(rateBps, today, month int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.currentRateBps == rateBps && l.todayBytes == today && l.monthBytes == month {
+		return
+	}
 	l.currentRateBps = rateBps
 	l.todayBytes = today
 	l.monthBytes = month

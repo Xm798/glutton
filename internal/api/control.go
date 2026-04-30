@@ -41,13 +41,20 @@ func (h *controlHandlers) burstNow(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "burst not configured")
 	}
 	var in struct {
-		Minutes int `json:"minutes"`
+		Minutes int   `json:"minutes"`
+		Bytes   int64 `json:"bytes"`
 	}
 	_ = c.Bind(&in)
-	if in.Minutes <= 0 {
-		in.Minutes = 30
+	if in.Minutes < 0 {
+		in.Minutes = 0
 	}
-	h.burst.Burst(in.Minutes)
+	if in.Bytes < 0 {
+		in.Bytes = 0
+	}
+	if in.Minutes == 0 && in.Bytes == 0 {
+		in.Minutes = 30 // default cap when caller specifies neither
+	}
+	h.burst.Burst(in.Minutes, in.Bytes)
 	return c.NoContent(http.StatusNoContent)
 }
 

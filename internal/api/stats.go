@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/labstack/echo/v4"
@@ -12,6 +13,20 @@ import (
 type statsHandlers struct {
 	store   *gorm.DB
 	counter *LiveCounters
+	loc     *time.Location
+}
+
+// resolveSince treats a missing or zero `since` as "today midnight in the
+// configured TZ" so per-source totals align with the Today KPI.
+func (h *statsHandlers) resolveSince(c echo.Context) int64 {
+	if since, _ := strconv.ParseInt(c.QueryParam("since"), 10, 64); since > 0 {
+		return since
+	}
+	loc := h.loc
+	if loc == nil {
+		loc = time.Local
+	}
+	return store.DayStart(time.Now(), loc)
 }
 
 func (h *statsHandlers) live(c echo.Context) error {
@@ -45,8 +60,7 @@ func (h *statsHandlers) bySource(c echo.Context) error {
 	if h.store == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "store not configured")
 	}
-	since, _ := strconv.ParseInt(c.QueryParam("since"), 10, 64)
-	rows, err := store.TrafficBySource(h.store, since)
+	rows, err := store.TrafficBySource(h.store, h.resolveSince(c))
 	if err != nil {
 		return err
 	}

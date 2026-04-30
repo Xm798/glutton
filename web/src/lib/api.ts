@@ -50,10 +50,13 @@ export const api = {
 
   pause: () => request<void>("/api/control/pause", { method: "POST" }),
   resume: () => request<void>("/api/control/resume", { method: "POST" }),
-  burst: (minutes: number) =>
+  burst: (params: { minutes?: number; bytes?: number }) =>
     request<void>("/api/control/burst", {
       method: "POST",
-      body: JSON.stringify({ minutes }),
+      body: JSON.stringify({
+        minutes: params.minutes ?? 0,
+        bytes: params.bytes ?? 0,
+      }),
     }),
   resetDaily: () => request<void>("/api/control/reset-daily", { method: "POST" }),
 };

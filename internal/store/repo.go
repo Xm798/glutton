@@ -97,6 +97,18 @@ func AddTraffic(db *gorm.DB, hourBucket int64, sourceID uint, bytes int64) error
 	}).Create(&row).Error
 }
 
+// SumTrafficSince returns the total bytes across all sources for hour buckets
+// >= since. Used at startup to recover daily/monthly counters from the
+// persistent traffic_buckets table after a restart.
+func SumTrafficSince(db *gorm.DB, since int64) (int64, error) {
+	var sum int64
+	err := db.Model(&TrafficBucket{}).
+		Where("hour_bucket >= ?", since).
+		Select("COALESCE(SUM(bytes), 0)").
+		Scan(&sum).Error
+	return sum, err
+}
+
 func TrafficSinceBucket(db *gorm.DB, since int64) ([]TrafficBucket, error) {
 	var rows []TrafficBucket
 	err := db.Where("hour_bucket >= ?", since).Order("hour_bucket").Find(&rows).Error

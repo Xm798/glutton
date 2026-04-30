@@ -78,6 +78,5 @@ export const useDeleteSource = () => {
 
 export const usePause = () => useMutation({ mutationFn: api.pause });
 export const useResume = () => useMutation({ mutationFn: api.resume });
-export const useBurst = () =>
-  useMutation({ mutationFn: (minutes: number) => api.burst(minutes) });
+export const useBurst = () => useMutation({ mutationFn: api.burst });
 export const useResetDaily = () => useMutation({ mutationFn: api.resetDaily });
