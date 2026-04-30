@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ type LinesKey = "time_windows" | "notifier_urls" | "subscribed_events";
 type NumKey = "daily_quota_gb" | "monthly_quota_gb" | "max_rate_mbps" | "max_concurrent";
 
 export function SettingsForm() {
+  const { t } = useTranslation();
   const { data, isLoading } = useConfig();
   const put = usePutConfig();
   const [form, setForm] = useState<RuntimeConfig>(empty);
@@ -30,7 +32,7 @@ export function SettingsForm() {
     if (data) setForm({ ...empty, ...data });
   }, [data]);
 
-  if (isLoading) return <div className="text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div className="text-muted-foreground">{t("common.loading")}</div>;
 
   const linesField = (key: LinesKey, label: string, hint: string) => (
     <div className="grid gap-1">
@@ -73,31 +75,27 @@ export function SettingsForm() {
       }}
     >
       <Card>
-        <CardHeader><CardTitle>Quotas & rate</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("settings.quotasAndRate")}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
-          {numField("daily_quota_gb", "Daily quota (GB)", "0 = unlimited")}
-          {numField("monthly_quota_gb", "Monthly quota (GB)", "0 = unlimited")}
-          {numField("max_rate_mbps", "Max rate (MB/s)", "Never zero — defaults to 10")}
-          {numField("max_concurrent", "Max concurrent connections")}
+          {numField("daily_quota_gb", t("settings.dailyQuotaGb"), t("settings.unlimitedHint"))}
+          {numField("monthly_quota_gb", t("settings.monthlyQuotaGb"), t("settings.unlimitedHint"))}
+          {numField("max_rate_mbps", t("settings.maxRate"), t("settings.maxRateHint"))}
+          {numField("max_concurrent", t("settings.maxConcurrent"))}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Schedule</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("settings.schedule")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {linesField(
-            "time_windows",
-            "Time windows (5-field cron, one per line)",
-            "Example: `* 0-6 * * *` — every minute of hours 0-6 (timezone follows TZ env var).",
-          )}
+          {linesField("time_windows", t("settings.timeWindows"), t("settings.timeWindowsHint"))}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>HTTP</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("settings.http")}</CardTitle></CardHeader>
         <CardContent className="grid gap-3">
           <div className="grid gap-1">
-            <Label htmlFor="default_ua">Default User-Agent</Label>
+            <Label htmlFor="default_ua">{t("settings.defaultUserAgent")}</Label>
             <Input
               id="default_ua"
               value={form.default_ua ?? ""}
@@ -108,20 +106,16 @@ export function SettingsForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Notifications</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("settings.notifications")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {linesField("notifier_urls", "Shoutrrr URLs (one per line)", "e.g. telegram://token@telegram?chats=123")}
-          {linesField(
-            "subscribed_events",
-            "Subscribed event types (one per line)",
-            "Examples: quota_reached_daily, quota_reached_monthly, sources_mass_failure, error_critical",
-          )}
+          {linesField("notifier_urls", t("settings.shoutrrrUrls"), t("settings.shoutrrrHint"))}
+          {linesField("subscribed_events", t("settings.subscribedEvents"), t("settings.subscribedEventsHint"))}
         </CardContent>
       </Card>
 
       <div className="flex justify-end">
         <Button type="submit" disabled={put.isPending}>
-          {put.isPending ? "Saving…" : "Save"}
+          {put.isPending ? t("common.saving") : t("common.save")}
         </Button>
       </div>
     </form>

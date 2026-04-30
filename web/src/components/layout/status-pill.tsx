@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { useLiveStore } from "@/lib/store";
 
@@ -8,22 +9,16 @@ const VARIANT: Record<string, string> = {
   quota_reached: "bg-red-500/15 text-red-700 dark:text-red-300",
 };
 
-const LABEL: Record<string, string> = {
-  idle: "Idle",
-  running: "Running",
-  paused: "Paused",
-  quota_reached: "Quota reached",
-};
-
 export function StatusPill() {
+  const { t } = useTranslation();
   const status = useLiveStore((s) => s.status);
   const connected = useLiveStore((s) => s.connected);
   return (
     <div className="flex items-center gap-2">
-      <Badge className={VARIANT[status] ?? ""}>{LABEL[status] ?? status}</Badge>
+      <Badge className={VARIANT[status] ?? ""}>{t(`status.${status}`, { defaultValue: status })}</Badge>
       <span
         className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground"}`}
-        title={connected ? "Live" : "Disconnected"}
+        title={connected ? t("status.live") : t("status.disconnected")}
       />
     </div>
   );

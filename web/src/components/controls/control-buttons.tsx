@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { usePause, useResetDaily, useResume } from "@/lib/queries";
@@ -5,6 +6,7 @@ import { useLiveStore } from "@/lib/store";
 import { BurstDialog } from "./burst-dialog";
 
 export function ControlButtons() {
+  const { t } = useTranslation();
   const status = useLiveStore((s) => s.status);
   const pause = usePause();
   const resume = useResume();
@@ -14,17 +16,17 @@ export function ControlButtons() {
     <div className="flex items-center gap-2">
       {status === "paused" ? (
         <Button size="sm" onClick={() => resume.mutate()} disabled={resume.isPending}>
-          <Play className="mr-1 h-4 w-4" /> Resume
+          <Play className="mr-1 h-4 w-4" /> {t("controls.resume")}
         </Button>
       ) : (
         <Button size="sm" variant="outline" onClick={() => pause.mutate()} disabled={pause.isPending}>
-          <Pause className="mr-1 h-4 w-4" /> Pause
+          <Pause className="mr-1 h-4 w-4" /> {t("controls.pause")}
         </Button>
       )}
       <BurstDialog />
       {status === "quota_reached" && (
         <Button size="sm" variant="outline" onClick={() => reset.mutate()} disabled={reset.isPending}>
-          <RotateCcw className="mr-1 h-4 w-4" /> Reset daily
+          <RotateCcw className="mr-1 h-4 w-4" /> {t("controls.resetDaily")}
         </Button>
       )}
     </div>

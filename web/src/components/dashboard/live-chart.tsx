@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLiveStats } from "@/lib/queries";
@@ -12,6 +13,7 @@ interface Point {
 const WINDOW_SECONDS = 3600; // last 60 min
 
 export function LiveChart() {
+  const { t } = useTranslation();
   const live = useLiveStats();
   const [points, setPoints] = useState<Point[]>([]);
   const lastUpdated = useRef<number>(0);
@@ -31,7 +33,7 @@ export function LiveChart() {
   return (
     <Card className="col-span-full">
       <CardHeader>
-        <CardTitle>Downstream rate (last hour)</CardTitle>
+        <CardTitle>{t("dashboard.rateChartTitle")}</CardTitle>
       </CardHeader>
       <CardContent className="h-72">
         <ResponsiveContainer width="100%" height="100%">

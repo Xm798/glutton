@@ -1,0 +1,96 @@
+{
+  "app": {
+    "name": "Glutton"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "sources": "下载源",
+    "settings": "设置",
+    "events": "事件"
+  },
+  "common": {
+    "loading": "加载中…",
+    "cancel": "取消",
+    "save": "保存",
+    "saving": "保存中…",
+    "add": "新增",
+    "edit": "编辑",
+    "delete": "删除",
+    "confirmDelete": "确定删除 {{name}} 吗？",
+    "optional": "可选",
+    "language": "语言"
+  },
+  "status": {
+    "idle": "空闲",
+    "running": "运行中",
+    "paused": "已暂停",
+    "quota_reached": "配额已耗尽",
+    "live": "实时连接",
+    "disconnected": "连接已断开"
+  },
+  "controls": {
+    "resume": "继续",
+    "pause": "暂停",
+    "burst": "突发下载…",
+    "resetDaily": "重置今日配额",
+    "manualBurst": "手动突发",
+    "burstHint": "忽略定时窗口立即执行，任一上限达成即结束；留空表示不限制该上限。每日/每月配额仍然生效。",
+    "durationMinutes": "时长（分钟）",
+    "durationPlaceholder": "例如 30",
+    "totalVolumeMB": "总流量（MB）",
+    "startBurst": "开始突发"
+  },
+  "dashboard": {
+    "currentRate": "当前速率",
+    "today": "今日",
+    "thisMonth": "本月",
+    "rateChartTitle": "下行速率（最近一小时）",
+    "topSources": "源排行",
+    "source": "下载源",
+    "bytes": "流量",
+    "noTraffic": "暂无流量"
+  },
+  "sources": {
+    "title": "下载源",
+    "addSource": "新增下载源",
+    "editSource": "编辑下载源",
+    "name": "名称",
+    "url": "地址",
+    "userAgent": "User-Agent",
+    "userAgentOptional": "User-Agent（可选）",
+    "weight": "权重",
+    "status": "状态",
+    "enabled": "已启用",
+    "disabled": "已停用",
+    "avgSpeed": "平均速率",
+    "successFail": "成功 / 失败",
+    "noSources": "暂无下载源"
+  },
+  "settings": {
+    "title": "设置",
+    "intro": "配置已持久化至数据库。配额、速率、调度等变更将在下次进程重启后生效。",
+    "quotasAndRate": "配额与速率",
+    "dailyQuotaGb": "每日配额（GB）",
+    "monthlyQuotaGb": "每月配额（GB）",
+    "unlimitedHint": "0 表示不限制",
+    "maxRate": "最大速率（MB/s）",
+    "maxRateHint": "不可为 0 — 默认 10",
+    "maxConcurrent": "最大并发连接数",
+    "schedule": "调度",
+    "timeWindows": "时间窗口（5 字段 cron，每行一条）",
+    "timeWindowsHint": "例如：`* 0-6 * * *` 表示 0-6 点每分钟（时区跟随 TZ 环境变量）。",
+    "http": "HTTP",
+    "defaultUserAgent": "默认 User-Agent",
+    "notifications": "通知",
+    "shoutrrrUrls": "Shoutrrr URL（每行一条）",
+    "shoutrrrHint": "例如：telegram://token@telegram?chats=123",
+    "subscribedEvents": "订阅事件类型（每行一条）",
+    "subscribedEventsHint": "例如：quota_reached_daily、quota_reached_monthly、sources_mass_failure、error_critical"
+  },
+  "events": {
+    "title": "事件",
+    "intro": "通过 SSE 实时接收的最近 100 条事件。",
+    "filterPlaceholder": "按类型、级别或消息过滤…",
+    "empty": "暂未收到事件。"
+  }
+}

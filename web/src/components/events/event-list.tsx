@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ const LEVEL_VARIANT: Record<string, string> = {
 };
 
 export function EventList() {
+  const { t } = useTranslation();
   const events = useLiveStore((s) => s.recentEvents);
   const [filter, setFilter] = useState("");
 
@@ -28,14 +30,14 @@ export function EventList() {
   return (
     <div className="space-y-3">
       <Input
-        placeholder="Filter by type, level, or message…"
+        placeholder={t("events.filterPlaceholder")}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
       <Card className="divide-y">
         {filtered.length === 0 && (
           <div className="p-6 text-center text-sm text-muted-foreground">
-            No events received yet.
+            {t("events.empty")}
           </div>
         )}
         {filtered.map((e, i) => (

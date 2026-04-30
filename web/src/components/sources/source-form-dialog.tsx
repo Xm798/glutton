@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
@@ -18,6 +19,7 @@ interface Props {
 const empty: SourceInput = { name: "", url: "", ua: "", weight: 1, enabled: true };
 
 export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
+  const { t } = useTranslation();
   const [form, setForm] = useState<SourceInput>(empty);
   const createMut = useCreateSource();
   const updateMut = useUpdateSource();
@@ -53,11 +55,11 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
       <DialogContent>
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit source" : "Add source"}</DialogTitle>
+            <DialogTitle>{editing ? t("sources.editSource") : t("sources.addSource")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-4">
             <div className="grid gap-1">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">{t("sources.name")}</Label>
               <Input
                 id="name"
                 value={form.name}
@@ -66,7 +68,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="url">URL</Label>
+              <Label htmlFor="url">{t("sources.url")}</Label>
               <Input
                 id="url"
                 type="url"
@@ -76,7 +78,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="ua">User-Agent (optional)</Label>
+              <Label htmlFor="ua">{t("sources.userAgentOptional")}</Label>
               <Input
                 id="ua"
                 value={form.ua ?? ""}
@@ -85,7 +87,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1">
-                <Label htmlFor="weight">Weight</Label>
+                <Label htmlFor="weight">{t("sources.weight")}</Label>
                 <Input
                   id="weight"
                   type="number"
@@ -100,16 +102,16 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
                   checked={form.enabled}
                   onCheckedChange={(v) => setForm({ ...form, enabled: v })}
                 />
-                <Label htmlFor="enabled">Enabled</Label>
+                <Label htmlFor="enabled">{t("sources.enabled")}</Label>
               </div>
             </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={pending}>
-              {editing ? "Save" : "Add"}
+              {editing ? t("common.save") : t("common.add")}
             </Button>
           </DialogFooter>
         </form>

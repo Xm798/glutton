@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Zap } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useBurst } from "@/lib/queries";
 
 export function BurstDialog() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [minutes, setMinutes] = useState<string>("30");
   const [volumeMB, setVolumeMB] = useState<string>("");
@@ -33,37 +35,34 @@ export function BurstDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
-          <Zap className="mr-1 h-4 w-4" /> Burst…
+          <Zap className="mr-1 h-4 w-4" /> {t("controls.burst")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Manual burst</DialogTitle>
+            <DialogTitle>{t("controls.manualBurst")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-4">
-            <p className="text-sm text-muted-foreground">
-              Force-run regardless of the cron window. Burst ends when either cap is reached.
-              Leave a field blank to skip that cap. Daily/monthly quotas still apply.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("controls.burstHint")}</p>
             <div className="grid gap-1">
-              <Label htmlFor="burst-minutes">Duration (minutes)</Label>
+              <Label htmlFor="burst-minutes">{t("controls.durationMinutes")}</Label>
               <Input
                 id="burst-minutes"
                 type="number"
                 min={0}
-                placeholder="e.g. 30"
+                placeholder={t("controls.durationPlaceholder")}
                 value={minutes}
                 onChange={(e) => setMinutes(e.target.value)}
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="burst-volume">Total volume (MB)</Label>
+              <Label htmlFor="burst-volume">{t("controls.totalVolumeMB")}</Label>
               <Input
                 id="burst-volume"
                 type="number"
                 min={0}
-                placeholder="optional"
+                placeholder={t("common.optional")}
                 value={volumeMB}
                 onChange={(e) => setVolumeMB(e.target.value)}
               />
@@ -71,10 +70,10 @@ export function BurstDialog() {
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={burst.isPending || !valid}>
-              Start burst
+              {t("controls.startBurst")}
             </Button>
           </DialogFooter>
         </form>
