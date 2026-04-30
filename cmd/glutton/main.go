@@ -68,6 +68,9 @@ func run() error {
 	bus := events.NewBus(64)
 	defer bus.Close()
 
+	failureTracker := consumer.NewFailureTracker(5 * time.Minute)
+	var lastMassFailureAt atomic.Int64 // unix seconds; debounce to at most once per 5 minutes
+
 	state := scheduler.NewState()
 	live := &api.LiveCounters{}
 
@@ -101,7 +104,7 @@ func run() error {
 				UserAgent: pickUA(c.UA, rt.DefaultUA),
 			}, true
 		},
-		OnResult: func(j consumer.Job, n int64, err error) {
+		OnResult: func(j consumer.Job, n int64, rtt time.Duration, err error) {
 			if n > 0 {
 				todayBytes.Add(n)
 				monthBytes.Add(n)
@@ -111,6 +114,9 @@ func run() error {
 				live.Set(n, todayBytes.Load(), monthBytes.Load())
 				api.CurrentRateGauge.Set(float64(n))
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
+				if rtt > 0 {
+					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
+				}
 			}
 			if err != nil {
 				bus.Publish(events.Event{
@@ -118,6 +124,20 @@ func run() error {
 					Message: err.Error(),
 					Data:    map[string]any{"source_id": j.SourceID},
 				})
+			}
+			// Rolling-window mass-failure detection (spec §6.5).
+			// Gate on ≥4 distinct sources attempted to suppress noise; debounce to once per 5 min.
+			failureTracker.Record(j.SourceID, err != nil)
+			if failed, distinct, ratio := failureTracker.FailureRatio(); failed >= 4 && distinct >= 4 && ratio >= 0.5 {
+				nowSec := time.Now().Unix()
+				last := lastMassFailureAt.Load()
+				if nowSec-last >= 300 && lastMassFailureAt.CompareAndSwap(last, nowSec) {
+					bus.Publish(events.Event{
+						Type:    "sources_mass_failure",
+						Level:   "error",
+						Message: fmt.Sprintf("mass failure: %d/%d attempts failed across %d sources in last 5min", failed, failureTracker.AttemptCount(), distinct),
+					})
+				}
 			}
 		},
 	})

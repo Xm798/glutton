@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -13,7 +14,7 @@ type PoolConfig struct {
 	Client   *http.Client
 	Limiter  *rate.Limiter
 	Provider func(ctx context.Context) (Job, bool) // false = no job available; worker idles briefly
-	OnResult func(j Job, bytes int64, err error)
+	OnResult func(j Job, bytes int64, rtt time.Duration, err error)
 }
 
 type Pool struct {
@@ -57,9 +58,9 @@ func (p *Pool) runWorker(ctx context.Context) {
 			}
 			continue
 		}
-		n, err := p.d.Run(ctx, job)
+		n, rtt, err := p.d.Run(ctx, job)
 		if p.cfg.OnResult != nil {
-			p.cfg.OnResult(job, n, err)
+			p.cfg.OnResult(job, n, rtt, err)
 		}
 	}
 }

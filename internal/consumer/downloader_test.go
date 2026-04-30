@@ -37,7 +37,7 @@ func TestDownloaderRespectsRateLimit(t *testing.T) {
 
 	d := consumer.NewDownloader(http.DefaultClient, lim)
 	start := time.Now()
-	n, err := d.Run(ctx, consumer.Job{URL: srv.URL, UserAgent: "glutton-test/1.0"})
+	n, _, err := d.Run(ctx, consumer.Job{URL: srv.URL, UserAgent: "glutton-test/1.0"})
 	elapsed := time.Since(start)
 
 	require.True(t, err == nil || errors.Is(err, context.DeadlineExceeded), "err=%v", err)

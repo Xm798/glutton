@@ -21,6 +21,14 @@ func Open(dsn string) (*gorm.DB, error) {
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return nil, fmt.Errorf("automigrate: %w", err)
 	}
+	// WAL mode for concurrent reads; NORMAL sync is safe with WAL and improves throughput.
+	// :memory: databases silently ignore both PRAGMAs, so tests are unaffected.
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		return nil, fmt.Errorf("enable WAL: %w", err)
+	}
+	if err := db.Exec("PRAGMA synchronous=NORMAL").Error; err != nil {
+		return nil, fmt.Errorf("set synchronous: %w", err)
+	}
 	return db, nil
 }
 

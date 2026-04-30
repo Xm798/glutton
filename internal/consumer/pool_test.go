@@ -22,7 +22,7 @@ func TestWorkerPoolRunsAndStops(t *testing.T) {
 		jobs.Add(1)
 		return consumer.Job{URL: srv.URL, UserAgent: "ua"}, true
 	}
-	onResult := func(_ consumer.Job, n int64, _ error) {
+	onResult := func(_ consumer.Job, n int64, _ time.Duration, _ error) {
 		bytes.Add(n)
 	}
 
@@ -57,7 +57,7 @@ func TestWorkerPoolStopsImmediatelyOnCancel(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(10<<20), 1<<20),
 		Provider: provider,
-		OnResult: func(_ consumer.Job, _ int64, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
