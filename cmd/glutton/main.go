@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -79,16 +78,6 @@ func run() error {
 
 	var todayBytes, monthBytes atomic.Int64
 
-	// Rolling 5-second window for live rate calculation.
-	type rateSample struct {
-		ts    time.Time
-		bytes int64
-	}
-	var (
-		rateMu     sync.Mutex
-		rateWindow []rateSample
-	)
-
 	var lastPickedSourceID atomic.Int64
 	lastPickedSourceID.Store(-1)
 
@@ -123,31 +112,6 @@ func run() error {
 				_ = store.AddTraffic(db,
 					time.Now().In(loc).Truncate(time.Hour).Unix(),
 					j.SourceID, n)
-
-				// Compute real rate over a 5-second rolling window.
-				rateMu.Lock()
-				now := time.Now()
-				rateWindow = append(rateWindow, rateSample{ts: now, bytes: n})
-				cutoff := now.Add(-5 * time.Second)
-				for len(rateWindow) > 0 && rateWindow[0].ts.Before(cutoff) {
-					rateWindow = rateWindow[1:]
-				}
-				var total int64
-				for _, s := range rateWindow {
-					total += s.bytes
-				}
-				windowSec := 5.0
-				if len(rateWindow) > 0 {
-					elapsed := now.Sub(rateWindow[0].ts).Seconds()
-					if elapsed > 0.1 {
-						windowSec = elapsed
-					}
-				}
-				rate := int64(float64(total) / windowSec)
-				rateMu.Unlock()
-
-				live.Set(rate, todayBytes.Load(), monthBytes.Load())
-				api.CurrentRateGauge.Set(float64(rate))
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
 				if rtt > 0 {
 					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
@@ -223,6 +187,7 @@ func run() error {
 	<-notifier.Ready() // ensure subscriber is registered before any publish
 	consumerPool.Start(ctx)
 	go runRetentionAndResets(ctx, db, loc, &todayBytes, &monthBytes, state, bus)
+	go runRateSampler(ctx, &todayBytes, &monthBytes, live)
 	bus.Publish(events.Event{Type: "service_started", Level: "info", Message: "service up"})
 
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv}
@@ -325,6 +290,46 @@ func (b burstImpl) Burst(minutes int) {
 		time.Sleep(time.Duration(minutes) * time.Minute)
 		_ = b.state.Deactivate()
 	}()
+}
+
+// runRateSampler derives current_rate_bps from the delta of cumulative
+// today-bytes over a sliding ~5s window, sampled once per second. This
+// counts bytes from in-flight downloads (via todayBytes.Add at each chunk's
+// completion) rather than only at job boundaries — the prior approach
+// under-reported when long-running jobs were active and over-reported on
+// burst job completions.
+func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.LiveCounters) {
+	const window = 5
+	type sample struct {
+		ts    time.Time
+		bytes int64
+	}
+	ring := make([]sample, 0, window+1)
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			cur := today.Load()
+			ring = append(ring, sample{ts: now, bytes: cur})
+			cutoff := now.Add(-time.Duration(window) * time.Second)
+			for len(ring) > 1 && ring[0].ts.Before(cutoff) {
+				ring = ring[1:]
+			}
+			var rate int64
+			if len(ring) >= 2 {
+				oldest := ring[0]
+				elapsed := now.Sub(oldest.ts).Seconds()
+				if elapsed > 0 {
+					rate = int64(float64(cur-oldest.bytes) / elapsed)
+				}
+			}
+			live.Set(rate, cur, month.Load())
+			api.CurrentRateGauge.Set(float64(rate))
+		}
+	}
 }
 
 func runRetentionAndResets(
