@@ -19,17 +19,60 @@ type Builtin struct {
 	Weight int    `json:"weight"`
 }
 
+// rawBuiltin matches builtin.json on disk; either `url` or `urls` may be
+// set. A group (urls=[...]) is expanded into N individual Builtin entries,
+// each named "<name> #<i>", so they can be tracked, weighted, and cooled
+// down independently while still sharing a recognizable label.
+type rawBuiltin struct {
+	Name   string   `json:"name"`
+	URL    string   `json:"url,omitempty"`
+	URLs   []string `json:"urls,omitempty"`
+	UA     string   `json:"ua,omitempty"`
+	Weight int      `json:"weight"`
+}
+
 func LoadBuiltins() ([]Builtin, error) {
-	var out []Builtin
-	if err := json.Unmarshal(builtinJSON, &out); err != nil {
+	var raw []rawBuiltin
+	if err := json.Unmarshal(builtinJSON, &raw); err != nil {
 		return nil, fmt.Errorf("decode builtin.json: %w", err)
 	}
-	for i := range out {
-		if out[i].Weight <= 0 {
-			out[i].Weight = 1
+	out := make([]Builtin, 0, len(raw))
+	for i, r := range raw {
+		w := r.Weight
+		if w <= 0 {
+			w = 1
+		}
+		hasURL := r.URL != ""
+		hasURLs := len(r.URLs) > 0
+		switch {
+		case hasURL && hasURLs:
+			return nil, fmt.Errorf("builtin[%d] %q: set either url or urls, not both", i, r.Name)
+		case hasURL:
+			out = append(out, Builtin{Name: r.Name, URL: r.URL, UA: r.UA, Weight: w})
+		case hasURLs:
+			width := numWidth(len(r.URLs))
+			for j, u := range r.URLs {
+				out = append(out, Builtin{
+					Name:   fmt.Sprintf("%s #%0*d", r.Name, width, j+1),
+					URL:    u,
+					UA:     r.UA,
+					Weight: w,
+				})
+			}
+		default:
+			return nil, fmt.Errorf("builtin[%d] %q: missing url/urls", i, r.Name)
 		}
 	}
 	return out, nil
+}
+
+func numWidth(n int) int {
+	w := 1
+	for n >= 10 {
+		n /= 10
+		w++
+	}
+	return w
 }
 
 type Candidate struct {
