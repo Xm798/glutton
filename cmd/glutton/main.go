@@ -161,6 +161,7 @@ func run() error {
 	go notifier.Run(ctx, bus)
 	<-notifier.Ready() // ensure subscriber is registered before any publish
 	consumerPool.Start(ctx)
+	go runRetentionAndResets(ctx, db, loc, &todayBytes, &monthBytes, state, bus)
 	bus.Publish(events.Event{Type: "service_started", Level: "info", Message: "service up"})
 
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv}
@@ -263,4 +264,47 @@ func (b burstImpl) Burst(minutes int) {
 		time.Sleep(time.Duration(minutes) * time.Minute)
 		_ = b.state.Deactivate()
 	}()
+}
+
+func runRetentionAndResets(
+	ctx context.Context,
+	db *gorm.DB,
+	loc *time.Location,
+	today, month *atomic.Int64,
+	state *scheduler.State,
+	bus *events.Bus,
+) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	var lastDay, lastMonth int
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			now := time.Now().In(loc)
+			d := now.YearDay()
+			m := int(now.Month())
+			if lastDay == 0 {
+				lastDay, lastMonth = d, m
+				continue
+			}
+			if d != lastDay {
+				today.Store(0)
+				_ = state.ResetQuota()
+				bus.Publish(events.Event{Type: "daily_reset", Level: "info", Message: "daily quota reset"})
+				lastDay = d
+				// Purge buckets older than 30 days.
+				cutoff := now.Add(-30 * 24 * time.Hour).Truncate(time.Hour).Unix()
+				_ = store.PurgeTrafficBefore(db, cutoff)
+				// Purge events older than 90 days.
+				_ = store.PurgeEventsBefore(db, now.Add(-90*24*time.Hour).Unix())
+			}
+			if m != lastMonth {
+				month.Store(0)
+				lastMonth = m
+				bus.Publish(events.Event{Type: "monthly_reset", Level: "info", Message: "monthly quota reset"})
+			}
+		}
+	}
 }
