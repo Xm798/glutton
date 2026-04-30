@@ -1,11 +1,266 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
+	"time"
 
+	"github.com/cyrus/glutton/internal/api"
+	"github.com/cyrus/glutton/internal/config"
+	"github.com/cyrus/glutton/internal/consumer"
+	"github.com/cyrus/glutton/internal/events"
+	"github.com/cyrus/glutton/internal/notify"
+	"github.com/cyrus/glutton/internal/scheduler"
+	"github.com/cyrus/glutton/internal/sources"
+	"github.com/cyrus/glutton/internal/store"
 	"github.com/cyrus/glutton/internal/version"
+	"golang.org/x/time/rate"
+	"gorm.io/gorm"
 )
 
 func main() {
-	fmt.Printf("glutton %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
+	if err := run(); err != nil {
+		slog.Error("startup failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+	logger.Info("starting glutton", "version", version.Version, "commit", version.Commit)
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir data: %w", err)
+	}
+
+	loc, err := time.LoadLocation(cfg.TZ)
+	if err != nil {
+		return fmt.Errorf("load tz: %w", err)
+	}
+
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer store.Close(db)
+
+	rt := loadRuntime(context.Background(), db)
+	logger.Info("runtime config",
+		"daily_gb", rt.DailyQuotaGB,
+		"monthly_gb", rt.MonthlyQuotaGB,
+		"rate_mbps", rt.MaxRateMBps,
+		"workers", rt.MaxConcurrent,
+		"windows", rt.Windows)
+
+	bus := events.NewBus(64)
+	defer bus.Close()
+
+	state := scheduler.NewState()
+	live := &api.LiveCounters{}
+
+	sourcePool := buildSourcePool(context.Background(), db, loc)
+
+	var todayBytes, monthBytes atomic.Int64
+
+	limiter := rate.NewLimiter(
+		rate.Limit(rt.MaxRateMBps*1024*1024),
+		int(rt.MaxRateMBps*1024*1024),
+	)
+
+	consumerPool := consumer.NewPool(consumer.PoolConfig{
+		Workers: rt.MaxConcurrent,
+		Client:  &http.Client{Timeout: 0},
+		Limiter: limiter,
+		Provider: func(ctx context.Context) (consumer.Job, bool) {
+			if state.Get() != scheduler.Running {
+				return consumer.Job{}, false
+			}
+			c, ok := sourcePool.Pick(time.Now().In(loc), -1)
+			if !ok {
+				return consumer.Job{}, false
+			}
+			return consumer.Job{
+				SourceID:  uint(c.ID),
+				URL:       c.URL,
+				UserAgent: pickUA(c.UA, rt.DefaultUA),
+			}, true
+		},
+		OnResult: func(j consumer.Job, n int64, err error) {
+			if n > 0 {
+				todayBytes.Add(n)
+				monthBytes.Add(n)
+				_ = store.AddTraffic(db,
+					time.Now().In(loc).Truncate(time.Hour).Unix(),
+					j.SourceID, n)
+				live.Set(n, todayBytes.Load(), monthBytes.Load())
+				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
+			}
+			if err != nil {
+				bus.Publish(events.Event{
+					Type: "source_error", Level: "warn",
+					Message: err.Error(),
+					Data:    map[string]any{"source_id": j.SourceID},
+				})
+			}
+		},
+	})
+
+	windows, err := scheduler.ParseWindows(rt.Windows, loc)
+	if err != nil {
+		return fmt.Errorf("parse windows: %w", err)
+	}
+	sched := scheduler.New(scheduler.Config{
+		State:             state,
+		Windows:           windows,
+		DailyQuotaBytes:   int64(rt.DailyQuotaGB) * 1024 * 1024 * 1024,
+		MonthlyQuotaBytes: int64(rt.MonthlyQuotaGB) * 1024 * 1024 * 1024,
+		BytesUsedDaily:    func() int64 { return todayBytes.Load() },
+		BytesUsedMonthly:  func() int64 { return monthBytes.Load() },
+		Now:               func() time.Time { return time.Now().In(loc) },
+		OnQuotaReached: func(scope string) {
+			bus.Publish(events.Event{
+				Type:    "quota_reached_" + scope,
+				Level:   "warn",
+				Message: "quota reached: " + scope,
+			})
+		},
+	})
+
+	notifier := notify.New(notify.Config{
+		URLs:            rt.NotifierURLs,
+		SubscribedTypes: rt.SubscribedEvents,
+		PersistEvent: func(_ context.Context, e events.Event) error {
+			return store.InsertEvent(db, &store.Event{
+				Ts: e.TS.Unix(), Level: e.Level, Type: e.Type, Message: e.Message,
+			})
+		},
+	})
+
+	srv := api.New(api.Deps{
+		Store: db, Live: live, State: state, Bus: bus,
+		Burst: burstImpl{state: state},
+	})
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	go sched.Run(ctx)
+	go notifier.Run(ctx, bus)
+	<-notifier.Ready() // ensure subscriber is registered before any publish
+	consumerPool.Start(ctx)
+	bus.Publish(events.Event{Type: "service_started", Level: "info", Message: "service up"})
+
+	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv}
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("http", "err", err)
+			cancel()
+		}
+	}()
+	logger.Info("listening", "addr", cfg.Listen)
+
+	<-ctx.Done()
+	logger.Info("shutting down")
+	bus.Publish(events.Event{Type: "service_stopped", Level: "info", Message: "service down"})
+	shutdownCtx, sdCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sdCancel()
+	_ = httpSrv.Shutdown(shutdownCtx)
+	consumerPool.Wait()
+	return nil
+}
+
+// ---- runtime config helpers ----
+
+type runtimeConfig struct {
+	DailyQuotaGB     int      `json:"daily_quota_gb"`
+	MonthlyQuotaGB   int      `json:"monthly_quota_gb"`
+	MaxRateMBps      int      `json:"max_rate_mbps"`
+	MaxConcurrent    int      `json:"max_concurrent"`
+	Windows          []string `json:"time_windows"`
+	DefaultUA        string   `json:"default_ua"`
+	NotifierURLs     []string `json:"notifier_urls"`
+	SubscribedEvents []string `json:"subscribed_events"`
+}
+
+func loadRuntime(ctx context.Context, db *gorm.DB) runtimeConfig {
+	rc := runtimeConfig{
+		MaxRateMBps:      10,
+		MaxConcurrent:    4,
+		Windows:          []string{"* 0-6 * * *"},
+		DefaultUA:        "Mozilla/5.0 (compatible; glutton/1.0)",
+		SubscribedEvents: []string{"quota_reached_daily", "quota_reached_monthly", "sources_mass_failure"},
+	}
+	tryDecode := func(key string, dst any) {
+		if v, err := store.GetConfig(db, key); err == nil {
+			_ = json.Unmarshal([]byte(v), dst)
+		}
+	}
+	tryDecode("daily_quota_gb", &rc.DailyQuotaGB)
+	tryDecode("monthly_quota_gb", &rc.MonthlyQuotaGB)
+	tryDecode("max_rate_mbps", &rc.MaxRateMBps)
+	tryDecode("max_concurrent", &rc.MaxConcurrent)
+	tryDecode("time_windows", &rc.Windows)
+	tryDecode("default_ua", &rc.DefaultUA)
+	tryDecode("notifier_urls", &rc.NotifierURLs)
+	tryDecode("subscribed_events", &rc.SubscribedEvents)
+	_ = ctx // reserved for future per-key context plumbing
+	return rc
+}
+
+func buildSourcePool(ctx context.Context, db *gorm.DB, loc *time.Location) *sources.Pool {
+	rows, _ := store.ListEnabledSources(db)
+	if len(rows) == 0 {
+		// First-run seed: import builtins.
+		bs, _ := sources.LoadBuiltins()
+		for _, b := range bs {
+			_ = store.CreateSource(db, &store.Source{
+				Name: b.Name, URL: b.URL, UA: b.UA,
+				Enabled: true, Weight: b.Weight,
+			})
+		}
+		rows, _ = store.ListEnabledSources(db)
+	}
+	cands := make([]sources.Candidate, 0, len(rows))
+	for _, r := range rows {
+		cands = append(cands, sources.Candidate{
+			ID: int64(r.ID), Name: r.Name, URL: r.URL, UA: r.UA,
+			Weight:        r.Weight,
+			CooldownUntil: time.Unix(r.CooldownUntil, 0),
+		})
+	}
+	_ = ctx
+	_ = loc
+	return sources.NewPool(cands, rand.New(rand.NewSource(time.Now().UnixNano())))
+}
+
+func pickUA(perSource, def string) string {
+	if perSource != "" {
+		return perSource
+	}
+	return def
+}
+
+// burstImpl flips the state to Running for d minutes regardless of cron window.
+// Quota enforcement still applies because the scheduler's Tick will re-evaluate.
+type burstImpl struct{ state *scheduler.State }
+
+func (b burstImpl) Burst(minutes int) {
+	_ = b.state.Activate()
+	go func() {
+		time.Sleep(time.Duration(minutes) * time.Minute)
+		_ = b.state.Deactivate()
+	}()
 }
