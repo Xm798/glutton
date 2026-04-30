@@ -7,13 +7,14 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/time/rate"
+	"gorm.io/gorm"
 )
 
 // Deps holds everything handlers need. Each subsystem is wired here in main.
 // Fields are pointers/interfaces so tests can pass nil/mocks selectively.
-// More fields are added in later tasks (Store, Scheduler, Pool, Bus, etc.).
+// More fields are added in later tasks (Scheduler, Pool, Bus, etc.).
 type Deps struct {
-	// Filled in by later tasks.
+	Store *gorm.DB
 }
 
 type Server struct {
@@ -36,6 +37,10 @@ func New(deps Deps) *Server {
 			"date":    version.Date,
 		})
 	})
+
+	ch := &configHandlers{store: deps.Store}
+	g.GET("/config", ch.get)
+	g.PUT("/config", ch.put)
 
 	// /api/control gets a tighter rate limit per spec §9 (5 req/s per IP).
 	// Routes are wired in Task 17; here we only set up the rate-limited group.
