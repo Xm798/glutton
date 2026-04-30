@@ -74,6 +74,8 @@ func run() error {
 	sourcePool := buildSourcePool(context.Background(), db, loc)
 
 	var todayBytes, monthBytes atomic.Int64
+	var lastPickedSourceID atomic.Int64
+	lastPickedSourceID.Store(-1)
 
 	limiter := rate.NewLimiter(
 		rate.Limit(rt.MaxRateMBps*1024*1024),
@@ -88,10 +90,11 @@ func run() error {
 			if state.Get() != scheduler.Running {
 				return consumer.Job{}, false
 			}
-			c, ok := sourcePool.Pick(time.Now().In(loc), -1)
+			c, ok := sourcePool.Pick(time.Now().In(loc), lastPickedSourceID.Load())
 			if !ok {
 				return consumer.Job{}, false
 			}
+			lastPickedSourceID.Store(c.ID)
 			return consumer.Job{
 				SourceID:  uint(c.ID),
 				URL:       c.URL,
@@ -106,6 +109,7 @@ func run() error {
 					time.Now().In(loc).Truncate(time.Hour).Unix(),
 					j.SourceID, n)
 				live.Set(n, todayBytes.Load(), monthBytes.Load())
+				api.CurrentRateGauge.Set(float64(n))
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
 			}
 			if err != nil {
@@ -156,6 +160,8 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	api.ActiveWorkers.Set(float64(rt.MaxConcurrent))
 
 	go sched.Run(ctx)
 	go notifier.Run(ctx, bus)

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cyrus/glutton/internal/sources"
 	"github.com/cyrus/glutton/internal/store"
@@ -57,6 +59,12 @@ func (h *sourcesHandlers) create(c echo.Context) error {
 	if err := store.CreateSource(h.store, row); err != nil {
 		return err
 	}
+	_ = store.InsertEvent(h.store, &store.Event{
+		Ts:      time.Now().Unix(),
+		Level:   "info",
+		Type:    "source_created",
+		Message: fmt.Sprintf("source created: id=%d name=%q url=%q", row.ID, row.Name, row.URL),
+	})
 	return c.JSON(http.StatusCreated, row)
 }
 
@@ -89,6 +97,12 @@ func (h *sourcesHandlers) update(c echo.Context) error {
 	if err := store.SaveSource(h.store, row); err != nil {
 		return err
 	}
+	_ = store.InsertEvent(h.store, &store.Event{
+		Ts:      time.Now().Unix(),
+		Level:   "info",
+		Type:    "source_updated",
+		Message: fmt.Sprintf("source updated: id=%d name=%q url=%q", row.ID, row.Name, row.URL),
+	})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -103,5 +117,11 @@ func (h *sourcesHandlers) delete(c echo.Context) error {
 	if err := store.DeleteSource(h.store, uint(id)); err != nil {
 		return err
 	}
+	_ = store.InsertEvent(h.store, &store.Event{
+		Ts:      time.Now().Unix(),
+		Level:   "info",
+		Type:    "source_deleted",
+		Message: fmt.Sprintf("source deleted: id=%d", id),
+	})
 	return c.NoContent(http.StatusNoContent)
 }

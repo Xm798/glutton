@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cyrus/glutton/internal/api"
+	"github.com/cyrus/glutton/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,4 +43,21 @@ func TestCreateSourceRejectsBadURL(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCreateSourceWritesAuditEvent(t *testing.T) {
+	db := newDB(t)
+	srv := api.New(api.Deps{Store: db})
+
+	body := `{"name":"audit","url":"https://example.com/100MB.bin","weight":1,"enabled":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	events, err := store.ListEvents(db, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, "source_created", events[0].Type)
 }

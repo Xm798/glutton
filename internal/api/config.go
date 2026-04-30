@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/labstack/echo/v4"
@@ -41,5 +43,15 @@ func (h *configHandlers) put(c echo.Context) error {
 			return err
 		}
 	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	_ = store.InsertEvent(h.store, &store.Event{
+		Ts:      time.Now().Unix(),
+		Level:   "info",
+		Type:    "config_updated",
+		Message: fmt.Sprintf("config keys updated: %v", keys),
+	})
 	return c.NoContent(http.StatusNoContent)
 }
