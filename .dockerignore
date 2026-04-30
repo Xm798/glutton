@@ -1,0 +1,32 @@
+# Build artifacts that should never enter the build context
+bin/
+internal/api/spa_dist/*
+!internal/api/spa_dist/.gitkeep
+
+# Web tooling
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Local development
+.env
+.env.*
+.git/
+.github/
+.vscode/
+.idea/
+.DS_Store
+
+# Docs that don't belong in the image
+docs/
+*.md
+!README.md
+
+# Python / Node detritus
+__pycache__/
+*.pyc
+
+# Local data
+data/
+*.db
+*.db-journal
