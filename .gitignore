@@ -1,0 +1,43 @@
+# Local design / planning notes (kept out of repo)
+docs/superpowers/
+docs/plan/
+
+# Build artifacts
+/glutton
+/dist/
+/bin/
+*.exe
+
+# Go
+*.test
+*.out
+vendor/
+
+# Frontend
+node_modules/
+web/dist/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Runtime data
+/data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
