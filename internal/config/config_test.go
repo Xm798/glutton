@@ -15,7 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 
 	c, err := config.Load()
 	require.NoError(t, err)
-	require.Equal(t, "/data", c.DataDir)
+	require.Equal(t, "./data", c.DataDir)
 	require.Equal(t, ":7890", c.Listen)
 	require.Equal(t, "info", c.LogLevel)
 	require.Equal(t, "Asia/Shanghai", c.TZ)

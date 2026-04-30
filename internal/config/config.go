@@ -23,7 +23,7 @@ var validLogLevels = map[string]struct{}{
 
 func Load() (Config, error) {
 	c := Config{
-		DataDir:  envOr("GLUTTON_DATA_DIR", "/data"),
+		DataDir:  envOr("GLUTTON_DATA_DIR", "./data"),
 		Listen:   envOr("GLUTTON_LISTEN", ":7890"),
 		LogLevel: envOr("GLUTTON_LOG_LEVEL", "info"),
 		TZ:       envOr("TZ", "Asia/Shanghai"),

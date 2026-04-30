@@ -2,6 +2,9 @@ package store
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -12,8 +15,17 @@ func Open(dsn string) (*gorm.DB, error) {
 	if dsn == ":memory:" {
 		dsn = "file::memory:?cache=shared"
 	}
+	gormLogger := logger.New(
+		log.New(os.Stderr, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		Logger: gormLogger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
