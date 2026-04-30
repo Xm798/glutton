@@ -77,6 +77,9 @@ func New(deps Deps) *Server {
 
 	g.GET("/events", (&sseHandlers{bus: deps.Bus}).stream)
 
+	// SPA catch-all — must be last; Echo prioritises more-specific routes above.
+	e.GET("/*", spaHandler())
+
 	return &Server{e: e}
 }
 

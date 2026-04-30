@@ -43,3 +43,7 @@ Thumbs.db
 *.log
 
 coverage.*
+
+# SPA embed dir — only the sentinel is tracked; built artifacts are gitignored.
+internal/api/spa_dist/*
+!internal/api/spa_dist/.gitkeep
