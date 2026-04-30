@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -71,3 +72,8 @@ func (d *Downloader) Run(ctx context.Context, j Job) (int64, error) {
 		}
 	}
 }
+
+const idleBackoff = 250 * time.Millisecond
+
+// timeAfter is overridable in tests if we need deterministic timing.
+var timeAfter = time.After
