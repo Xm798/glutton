@@ -1,0 +1,27 @@
+services:
+  glutton:
+    image: ghcr.io/<owner>/glutton:latest
+    # Local development: comment out the line above and uncomment to build from source.
+    # build: .
+    container_name: glutton
+    restart: unless-stopped
+
+    # network_mode: host gives accurate per-NIC stats and avoids NAT overhead.
+    # If your environment doesn't support host networking (Docker Desktop on Mac/Windows),
+    # comment this out and uncomment the `ports` mapping below.
+    network_mode: host
+    # ports:
+    #   - "7890:7890"
+
+    volumes:
+      - ./data:/data
+
+    environment:
+      - TZ=Asia/Shanghai
+      - GLUTTON_LOG_LEVEL=info
+      - GLUTTON_DATA_DIR=/data
+      - GLUTTON_LISTEN=:7890
+
+    # The distroless nonroot user (uid 65532) must own ./data on the host.
+    # Run `mkdir -p data && sudo chown 65532:65532 data` before first start, OR
+    # use `user: "${UID}:${GID}"` and pre-create the dir owned by your user.
