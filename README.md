@@ -10,17 +10,56 @@ Glutton steadily drains downstream bandwidth from a curated pool of public large
 
 ## Quick start
 
+### Docker (recommended)
+
 ```bash
-docker compose up -d
+mkdir -p data
+# Linux: sudo chown 65532:65532 data    (distroless nonroot uid)
+# macOS Docker Desktop: chmod 777 data  (VM handles uid mapping)
+
+docker run -d --name glutton \
+  --restart unless-stopped \
+  -p 7890:7890 \
+  -v $(pwd)/data:/data \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/<owner>/glutton:latest
+
 open http://localhost:7890
 ```
 
-(Docker image and compose file land in the next plan — for now, build and run locally:)
+Or with compose:
+
+```bash
+docker compose up -d
+```
+
+(Edit the `image:` line in `docker-compose.yml` to point at your published image, then run.)
+
+### Build from source
 
 ```bash
 make build
 GLUTTON_DATA_DIR=./data ./bin/glutton
 ```
+
+`make build` runs `pnpm install && pnpm build` (web SPA) and the Go compile. Requires Go 1.26+, Node 24+, and pnpm 10+.
+
+### Build a local Docker image
+
+```bash
+docker build \
+  --build-arg VERSION=$(git describe --tags --always --dirty) \
+  --build-arg COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t glutton:dev .
+```
+
+## Image
+
+- Base: `gcr.io/distroless/static-debian12:nonroot` (uid 65532)
+- Size: ~19 MB
+- Architectures: `linux/amd64`, `linux/arm64`
+- Pure-Go SQLite — no CGO, no glibc dependency
 
 ## Configuration
 
@@ -28,7 +67,7 @@ Process-level (env):
 
 | Var | Default | Notes |
 |---|---|---|
-| `GLUTTON_DATA_DIR` | `/data` | SQLite DB and any state lives here |
+| `GLUTTON_DATA_DIR` | `./data` | SQLite DB and any state lives here (Docker compose sets this to `/data`) |
 | `GLUTTON_LISTEN`   | `:7890` | HTTP listen addr |
 | `GLUTTON_LOG_LEVEL`| `info`  | `debug` / `info` / `warn` / `error` |
 | `TZ`               | `Asia/Shanghai` | Standard Go timezone string |
