@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/cyrus/glutton/internal/scheduler"
 	"github.com/cyrus/glutton/internal/version"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -12,10 +13,17 @@ import (
 
 // Deps holds everything handlers need. Each subsystem is wired here in main.
 // Fields are pointers/interfaces so tests can pass nil/mocks selectively.
-// More fields are added in later tasks (Scheduler, Pool, Bus, etc.).
 type Deps struct {
 	Store *gorm.DB
 	Live  *LiveCounters
+	State *scheduler.State
+	Burst BurstController
+}
+
+// BurstController allows /api/control/burst to grant a temporary window
+// override. Implemented in main; stub-friendly for tests.
+type BurstController interface {
+	Burst(minutes int)
 }
 
 type Server struct {
@@ -55,10 +63,13 @@ func New(deps Deps) *Server {
 	g.GET("/stats/sources", stats.bySource)
 
 	// /api/control gets a tighter rate limit per spec §9 (5 req/s per IP).
-	// Routes are wired in Task 17; here we only set up the rate-limited group.
 	control := g.Group("/control",
 		middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(5))))
-	_ = control // populated in Task 17
+	ctl := &controlHandlers{state: deps.State, burst: deps.Burst}
+	control.POST("/pause", ctl.pause)
+	control.POST("/resume", ctl.resume)
+	control.POST("/burst", ctl.burstNow)
+	control.POST("/reset-daily", ctl.resetDaily)
 
 	return &Server{e: e}
 }
