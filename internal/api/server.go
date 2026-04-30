@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/cyrus/glutton/internal/events"
 	"github.com/cyrus/glutton/internal/scheduler"
 	"github.com/cyrus/glutton/internal/version"
 	"github.com/labstack/echo/v4"
@@ -18,6 +19,7 @@ type Deps struct {
 	Live  *LiveCounters
 	State *scheduler.State
 	Burst BurstController
+	Bus   *events.Bus
 }
 
 // BurstController allows /api/control/burst to grant a temporary window
@@ -70,6 +72,8 @@ func New(deps Deps) *Server {
 	control.POST("/resume", ctl.resume)
 	control.POST("/burst", ctl.burstNow)
 	control.POST("/reset-daily", ctl.resetDaily)
+
+	g.GET("/events", (&sseHandlers{bus: deps.Bus}).stream)
 
 	return &Server{e: e}
 }
