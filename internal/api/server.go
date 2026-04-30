@@ -15,6 +15,7 @@ import (
 // More fields are added in later tasks (Scheduler, Pool, Bus, etc.).
 type Deps struct {
 	Store *gorm.DB
+	Live  *LiveCounters
 }
 
 type Server struct {
@@ -47,6 +48,11 @@ func New(deps Deps) *Server {
 	g.POST("/sources", sh.create)
 	g.PUT("/sources/:id", sh.update)
 	g.DELETE("/sources/:id", sh.delete)
+
+	stats := &statsHandlers{store: deps.Store, counter: deps.Live}
+	g.GET("/stats/live", stats.live)
+	g.GET("/stats/history", stats.history)
+	g.GET("/stats/sources", stats.bySource)
 
 	// /api/control gets a tighter rate limit per spec §9 (5 req/s per IP).
 	// Routes are wired in Task 17; here we only set up the rate-limited group.
