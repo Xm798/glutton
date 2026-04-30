@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/time v0.15.0
 	gorm.io/gorm v1.31.1
 )
 
