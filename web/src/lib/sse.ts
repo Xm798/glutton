@@ -10,8 +10,11 @@ const RECONNECT_MAX_MS = 30_000;
 const KNOWN_TYPES = [
   "service_started",
   "service_stopped",
+  "service_paused",
+  "service_resumed",
   "quota_reached_daily",
   "quota_reached_monthly",
+  "daily_reset_manual",
   "sources_mass_failure",
   "source_error",
   "daily_reset",

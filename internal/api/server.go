@@ -69,7 +69,7 @@ func New(deps Deps) *Server {
 	// /api/control gets a tighter rate limit per spec §9 (5 req/s per IP).
 	control := g.Group("/control",
 		middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(5))))
-	ctl := &controlHandlers{state: deps.State, burst: deps.Burst}
+	ctl := &controlHandlers{state: deps.State, burst: deps.Burst, bus: deps.Bus}
 	control.POST("/pause", ctl.pause)
 	control.POST("/resume", ctl.resume)
 	control.POST("/burst", ctl.burstNow)

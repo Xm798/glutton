@@ -39,7 +39,7 @@ export function EventList() {
           </div>
         )}
         {filtered.map((e, i) => (
-          <div key={i} className="flex items-start gap-3 px-4 py-3">
+          <div key={`${e.TS}-${e.Type}-${i}`} className="flex items-start gap-3 px-4 py-3">
             <Badge className={LEVEL_VARIANT[e.Level] ?? ""}>{e.Level}</Badge>
             <div className="flex-1">
               <div className="flex items-baseline justify-between">

@@ -26,9 +26,14 @@ export const useLiveStore = create<LiveState>((set) => ({
       switch (e.Type) {
         case "service_started":
         case "service_stopped":
+        case "service_resumed":
         case "daily_reset":
+        case "daily_reset_manual":
         case "monthly_reset":
           status = "idle";
+          break;
+        case "service_paused":
+          status = "paused";
           break;
         case "quota_reached_daily":
         case "quota_reached_monthly":
