@@ -70,6 +70,7 @@ Process-level (env):
 | `GLUTTON_DATA_DIR` | `./data` | SQLite DB and any state lives here (Docker compose sets this to `/data`) |
 | `GLUTTON_LISTEN`   | `:7890` | HTTP listen addr |
 | `GLUTTON_LOG_LEVEL`| `info`  | `debug` / `info` / `warn` / `error` |
+| `GLUTTON_VALIDATE_DNS_TIMEOUT_MS` | `3000` | Per-source URL validation DNS lookup deadline. Lower (e.g. `1000`) for internal-only deployments; raise for slow international DNS. |
 | `TZ`               | `Asia/Shanghai` | Standard Go timezone string |
 
 Runtime (set via `PUT /api/config` or the web UI):
@@ -80,9 +81,38 @@ Runtime (set via `PUT /api/config` or the web UI):
 - `time_windows` — array of cron expressions, 5-field, minute first (e.g. `["* 0-6 * * *"]` = every minute of hours 0-6)
 - `default_ua`, `notifier_urls`, `subscribed_events`
 
-## Security
+## Security & production deployment checklist
 
-Glutton has **no built-in authentication** in v1. Bind to LAN only or front it with a reverse-proxy that adds auth.
+Glutton's HTTP surface is intended for trusted networks. Before exposing the
+service publicly, do **all** of the following:
+
+1. **Set a token**. Export `GLUTTON_AUTH_TOKEN=<long random string>`. The
+   `/api/*` routes will then require `Authorization: Bearer <token>`.
+   `/metrics` and `/api/version` stay public so Prometheus and health probes
+   keep working. With the variable unset, the server logs a one-shot WARN
+   on the first API request.
+2. **Front with TLS**. Put a reverse-proxy (Caddy, nginx, Traefik) in front
+   to terminate HTTPS. The Go process speaks plain HTTP on `:7890`.
+3. **Keep CORS closed unless you need it**. Cross-origin is disabled by
+   default. To run the SPA from a different host, set
+   `GLUTTON_CORS_ORIGINS=https://app.example.com,https://www.example.com`
+   (comma-separated; `*` works but is not recommended).
+4. **Bind to localhost when possible**. The compose file uses
+   `network_mode: host`; if you switch to a published port, prefer
+   `127.0.0.1:7890:7890` and let the proxy forward.
+5. **Source URL hygiene is enforced**. The validator rejects loopback,
+   RFC1918, link-local, CGNAT (100.64/10), and cloud metadata IPs
+   (`169.254.169.254`, `100.100.100.200`). DNS hostnames are resolved at
+   validation time and refused if any answer falls in those ranges; the
+   actual download dialer re-checks the resolved peer at SYN time so a
+   post-validation DNS rebind still fails.
+
+The built-in security headers (X-Content-Type-Options, X-Frame-Options,
+Content-Security-Policy, Referrer-Policy) and a 1 MiB request-body cap are
+always on; no opt-in needed.
+
+If you only run Glutton on a trusted LAN, skipping (1) is acceptable but
+the WARN log line will tell you each time the process restarts.
 
 ## Data retention
 

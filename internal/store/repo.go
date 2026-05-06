@@ -135,11 +135,41 @@ func InsertEvent(db *gorm.DB, e *Event) error {
 }
 
 func ListEvents(db *gorm.DB, since int64, limit int) ([]Event, error) {
+	return ListEventsFiltered(db, since, limit, nil)
+}
+
+// ListEventsFiltered returns the most-recent `limit` events with ts >= since.
+// When types is non-empty the predicate is pushed into SQL (`type IN (...)`)
+// so the limit is applied AFTER the filter, not before — otherwise a
+// type-specific request can return zero rows even when matching rows exist
+// just past the global limit window.
+func ListEventsFiltered(db *gorm.DB, since int64, limit int, types []string) ([]Event, error) {
 	var rows []Event
-	err := db.Where("ts >= ?", since).Order("ts DESC").Limit(limit).Find(&rows).Error
+	q := db.Where("ts >= ?", since)
+	if len(types) > 0 {
+		cleaned := make([]string, 0, len(types))
+		for _, t := range types {
+			if t != "" {
+				cleaned = append(cleaned, t)
+			}
+		}
+		if len(cleaned) > 0 {
+			q = q.Where("type IN ?", cleaned)
+		}
+	}
+	err := q.Order("ts DESC").Limit(limit).Find(&rows).Error
 	return rows, err
 }
 
 func PurgeEventsBefore(db *gorm.DB, ts int64) error {
 	return db.Where("ts < ?", ts).Delete(&Event{}).Error
+}
+
+// MaxEventID returns the highest event_id ever persisted, or 0 if the table
+// is empty. Used at startup to seed the in-process bus monotonic counter so
+// SSE/history ids never collide with rows from the previous run.
+func MaxEventID(db *gorm.DB) (uint64, error) {
+	var max uint64
+	err := db.Model(&Event{}).Select("COALESCE(MAX(event_id), 0)").Scan(&max).Error
+	return max, err
 }

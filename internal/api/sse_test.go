@@ -50,3 +50,42 @@ func TestSSEStreamsEvents(t *testing.T) {
 	}
 	t.Fatalf("did not receive event in stream, got: %q", got)
 }
+
+func TestSSEFrameIncludesIDField(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+	srv := api.New(api.Deps{Bus: bus})
+
+	httpsrv := httptest.NewServer(srv)
+	defer httpsrv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, httpsrv.URL+"/api/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		bus.Publish(events.Event{Type: "service_started", Message: "hi"})
+	}()
+
+	r := bufio.NewReader(resp.Body)
+	deadline := time.Now().Add(time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		got += line
+		if strings.Contains(got, `"id":`) && strings.Contains(got, "service_started") {
+			// SSE frame must carry the bus-assigned id (non-zero).
+			require.NotContains(t, got, `"id":0`,
+				"SSE frame should not have id=0 — Publish should assign monotonic ids")
+			return
+		}
+	}
+	t.Fatalf("did not receive id-bearing event, got: %q", got)
+}

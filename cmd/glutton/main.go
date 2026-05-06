@@ -6,13 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	// Embed the IANA tz database into the binary so containers built on
+	// distroless/static (no zoneinfo on disk) can still resolve TZ values
+	// like Asia/Shanghai. Adds ~450 KB; worth it for crash-free startup.
+	_ "time/tzdata"
 
 	"github.com/cyrus/glutton/internal/api"
 	"github.com/cyrus/glutton/internal/config"
@@ -26,6 +32,17 @@ import (
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
+
+// byteOnlyBurstSafetyTimeout caps the State-side deadline of a burst that
+// only specified a byte cap. Without it, a misconfigured source that
+// 200-OKs but never delivers bytes could lock the scheduler in Running for
+// 24h. 2h is long enough for any realistic byte-only burst (e.g. "drain
+// 50 GB at 5 MB/s ≈ 2.8h" — operators tend to set minutes for those).
+const byteOnlyBurstSafetyTimeout = 2 * time.Hour
+
+// configDebounce coalesces a burst of config_updated events (e.g. multi-key
+// PUT loops, tests, or replays) into a single hot-apply pass.
+const configDebounce = 50 * time.Millisecond
 
 func main() {
 	if err := run(); err != nil {
@@ -66,21 +83,59 @@ func run() error {
 		"workers", rt.MaxConcurrent,
 		"windows", rt.Windows)
 
+	rtSnap := &atomic.Pointer[runtimeConfig]{}
+	rtSnap.Store(&rt)
+
 	bus := events.NewBus(64)
 	defer bus.Close()
+	// Seed the monotonic event-id counter from the persisted max so SSE/history
+	// ids never collide with rows from prior runs. Best-effort: a failed query
+	// (very unlikely on a freshly-opened sqlite) leaves the counter at 0, which
+	// only matters if the DB happens to already contain ids — in that case the
+	// frontend dedupe falls back to (TS, Type, Message).
+	if maxID, err := store.MaxEventID(db); err == nil {
+		bus.SetNextID(maxID)
+	} else {
+		logger.Warn("seed event id counter", "err", err)
+	}
 
 	failureTracker := consumer.NewFailureTracker(5 * time.Minute)
-	var lastMassFailureAt atomic.Int64 // unix seconds; debounce to at most once per 5 minutes
+	var lastMassFailureAt atomic.Int64
 
 	state := scheduler.NewState()
+	state.SetTransitionHook(func(from, to scheduler.Status) {
+		bus.Publish(events.Event{
+			Type:    events.TypeStateChanged,
+			Level:   "info",
+			Message: fmt.Sprintf("state %s -> %s", from, to),
+			Data:    map[string]any{"from": from.String(), "to": to.String()},
+		})
+	})
 	live := &api.LiveCounters{}
 
-	sourcePool := buildSourcePool(context.Background(), db, loc)
+	sourcePool := buildSourcePool(db)
+
+	var consecFailMu sync.Mutex
+	consecFails := make(map[uint]int)
+
+	reloadSourcesFromDB := func() {
+		rows, err := store.ListEnabledSources(db)
+		if err != nil {
+			logger.Warn("reload sources", "err", err)
+			return
+		}
+		cands := make([]sources.Candidate, 0, len(rows))
+		for _, r := range rows {
+			cands = append(cands, sources.Candidate{
+				ID: int64(r.ID), Name: r.Name, URL: r.URL, UA: r.UA,
+				Weight:        r.Weight,
+				CooldownUntil: time.Unix(r.CooldownUntil, 0),
+			})
+		}
+		sourcePool.Replace(cands)
+	}
 
 	var todayBytes, monthBytes atomic.Int64
-
-	// Recover counters from DB so a restart mid-day doesn't wipe Today / This
-	// month while the per-source totals (DB-backed) keep marching.
 	{
 		now := time.Now()
 		if d, err := store.SumTrafficSince(db, store.DayStart(now, loc)); err == nil {
@@ -102,7 +157,7 @@ func run() error {
 
 	consumerPool := consumer.NewPool(consumer.PoolConfig{
 		Workers: rt.MaxConcurrent,
-		Client:  &http.Client{Timeout: 0},
+		Client:  newConsumerHTTPClient(),
 		Limiter: limiter,
 		Provider: func(ctx context.Context) (consumer.Job, bool) {
 			if state.Get() != scheduler.Running {
@@ -113,10 +168,11 @@ func run() error {
 				return consumer.Job{}, false
 			}
 			lastPickedSourceID.Store(c.ID)
+			cur := rtSnap.Load()
 			return consumer.Job{
 				SourceID:  uint(c.ID),
 				URL:       c.URL,
-				UserAgent: pickUA(c.UA, rt.DefaultUA),
+				UserAgent: pickUA(c.UA, cur.DefaultUA),
 			}, true
 		},
 		OnProgress: func(n int64) {
@@ -131,22 +187,21 @@ func run() error {
 					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
 				}
 			}
+			handleSourceResult(db, j.SourceID, n, rtt, err, &consecFailMu, consecFails, bus, reloadSourcesFromDB)
 			if err != nil {
 				bus.Publish(events.Event{
-					Type: "source_error", Level: "warn",
+					Type: events.TypeSourceError, Level: "warn",
 					Message: err.Error(),
 					Data:    map[string]any{"source_id": j.SourceID},
 				})
 			}
-			// Rolling-window mass-failure detection (spec §6.5).
-			// Gate on ≥4 distinct sources attempted to suppress noise; debounce to once per 5 min.
 			failureTracker.Record(j.SourceID, err != nil)
 			if failed, distinct, ratio := failureTracker.FailureRatio(); failed >= 4 && distinct >= 4 && ratio >= 0.5 {
 				nowSec := time.Now().Unix()
 				last := lastMassFailureAt.Load()
 				if nowSec-last >= 300 && lastMassFailureAt.CompareAndSwap(last, nowSec) {
 					bus.Publish(events.Event{
-						Type:    "sources_mass_failure",
+						Type:    events.TypeSourcesMassFailure,
 						Level:   "error",
 						Message: fmt.Sprintf("mass failure: %d/%d attempts failed across %d sources in last 5min", failed, failureTracker.AttemptCount(), distinct),
 					})
@@ -181,14 +236,25 @@ func run() error {
 		SubscribedTypes: rt.SubscribedEvents,
 		PersistEvent: func(_ context.Context, e events.Event) error {
 			return store.InsertEvent(db, &store.Event{
-				Ts: e.TS.Unix(), Level: e.Level, Type: e.Type, Message: e.Message,
+				EventID: e.ID,
+				Ts:      e.TS.Unix(),
+				Level:   e.Level,
+				Type:    e.Type,
+				Message: e.Message,
 			})
 		},
 	})
 
+	// Tight-buffered subscription with debounce: bursty config_updated traffic
+	// (multi-key PUTs, replays) is collapsed into a single reload pass via
+	// loadRuntime+Apply, which is already idempotent.
+	configCh := bus.SubscribeBuffered(4)
+	go applyConfigUpdates(configCh, db, rtSnap, limiter, sched, loc, consumerPool, notifier, logger)
+
 	srv := api.New(api.Deps{
 		Store: db, Live: live, State: state, Bus: bus, Loc: loc,
-		Burst: &burstImpl{state: state, bytesUsed: todayBytes.Load, bus: bus},
+		Burst:           &burstImpl{state: state, bytesUsed: todayBytes.Load, bus: bus},
+		SourcesReloader: reloaderFunc(reloadSourcesFromDB),
 	})
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -198,11 +264,11 @@ func run() error {
 
 	go sched.Run(ctx)
 	go notifier.Run(ctx, bus)
-	<-notifier.Ready() // ensure subscriber is registered before any publish
+	<-notifier.Ready()
 	consumerPool.Start(ctx)
 	go runRetentionAndResets(ctx, db, loc, &todayBytes, &monthBytes, state, bus)
 	go runRateSampler(ctx, &todayBytes, &monthBytes, live)
-	bus.Publish(events.Event{Type: "service_started", Level: "info", Message: "service up"})
+	bus.Publish(events.Event{Type: events.TypeServiceStarted, Level: "info", Message: "service up"})
 
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv}
 	go func() {
@@ -215,7 +281,7 @@ func run() error {
 
 	<-ctx.Done()
 	logger.Info("shutting down")
-	bus.Publish(events.Event{Type: "service_stopped", Level: "info", Message: "service down"})
+	bus.Publish(events.Event{Type: events.TypeServiceStopped, Level: "info", Message: "service down"})
 	shutdownCtx, sdCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer sdCancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
@@ -223,7 +289,199 @@ func run() error {
 	return nil
 }
 
-// ---- runtime config helpers ----
+type reloaderFunc func()
+
+func (r reloaderFunc) Reload() { r() }
+
+func handleSourceResult(
+	db *gorm.DB, sourceID uint, bytes int64, rtt time.Duration, err error,
+	mu *sync.Mutex, consec map[uint]int,
+	bus *events.Bus, reload func(),
+) {
+	if sourceID == 0 {
+		return
+	}
+	if err == nil {
+		var avg int64
+		if bytes > 0 && rtt > 0 {
+			avg = int64(float64(bytes) / rtt.Seconds())
+		}
+		mu.Lock()
+		delete(consec, sourceID)
+		mu.Unlock()
+		_ = store.RecordSourceSuccess(db, sourceID, avg, time.Now().Unix())
+		reload()
+		return
+	}
+	mu.Lock()
+	consec[sourceID]++
+	n := consec[sourceID]
+	mu.Unlock()
+	cooldown := sources.CooldownFor(n)
+	until := int64(0)
+	if cooldown > 0 {
+		until = time.Now().Add(cooldown).Unix()
+	}
+	_ = store.RecordSourceFailure(db, sourceID, err.Error(), until)
+	if cooldown > 0 && bus != nil {
+		bus.Publish(events.Event{
+			Type:    events.TypeSourceCooldown,
+			Level:   "warn",
+			Message: fmt.Sprintf("source %d cooled down for %s after %d consecutive failures", sourceID, cooldown, n),
+			Data: map[string]any{
+				"source_id":            sourceID,
+				"cooldown_seconds":     int64(cooldown.Seconds()),
+				"consecutive_failures": n,
+			},
+		})
+	}
+	reload()
+}
+
+// applyConfigUpdates listens for config_updated events and re-reads the DB
+// to obtain the canonical merged config (handles partial PUTs that touch
+// only some keys). A debounce timer coalesces bursts so a multi-key PUT
+// loop only triggers one reload pass; loadRuntime is idempotent so this is
+// strictly an efficiency optimisation, not a correctness one.
+func applyConfigUpdates(
+	ch <-chan events.Event,
+	db *gorm.DB,
+	snap *atomic.Pointer[runtimeConfig],
+	limiter *rate.Limiter,
+	sched *scheduler.Scheduler,
+	loc *time.Location,
+	pool *consumer.Pool,
+	notifier *notify.Notifier,
+	logger *slog.Logger,
+) {
+	apply := func() {
+		next := loadRuntime(context.Background(), db)
+		prev := snap.Load()
+		snap.Store(&next)
+
+		if prev == nil || prev.MaxRateMBps != next.MaxRateMBps {
+			bps := rate.Limit(next.MaxRateMBps * 1024 * 1024)
+			limiter.SetLimit(bps)
+			limiter.SetBurst(int(next.MaxRateMBps * 1024 * 1024))
+		}
+		// Cron expressions are order-insensitive (the union of windows is
+		// what matters), so an order-only reorder should not churn the
+		// schedules. notifier URLs and subscribed types are sets too.
+		if prev == nil || !stringSetsEqual(prev.Windows, next.Windows) {
+			w, err := scheduler.ParseWindows(next.Windows, loc)
+			if err != nil {
+				logger.Warn("config_updated: bad windows; keeping previous", "err", err)
+			} else {
+				sched.SetWindows(w)
+			}
+		}
+		if prev == nil ||
+			prev.DailyQuotaGB != next.DailyQuotaGB ||
+			prev.MonthlyQuotaGB != next.MonthlyQuotaGB {
+			sched.SetQuotas(
+				int64(next.DailyQuotaGB)*1024*1024*1024,
+				int64(next.MonthlyQuotaGB)*1024*1024*1024,
+			)
+		}
+		if prev == nil || prev.MaxConcurrent != next.MaxConcurrent {
+			pool.Resize(next.MaxConcurrent)
+			api.ActiveWorkers.Set(float64(next.MaxConcurrent))
+		}
+		if prev == nil || !stringSetsEqual(prev.NotifierURLs, next.NotifierURLs) {
+			notifier.SetURLs(next.NotifierURLs)
+		}
+		if prev == nil || !stringSetsEqual(prev.SubscribedEvents, next.SubscribedEvents) {
+			notifier.SetSubscribedTypes(next.SubscribedEvents)
+		}
+
+		logger.Info("config hot-applied",
+			"daily_gb", next.DailyQuotaGB,
+			"monthly_gb", next.MonthlyQuotaGB,
+			"rate_mbps", next.MaxRateMBps,
+			"workers", next.MaxConcurrent,
+			"windows", next.Windows)
+	}
+
+	var debouncer *time.Timer
+	defer func() {
+		if debouncer != nil {
+			debouncer.Stop()
+		}
+	}()
+	for e := range ch {
+		if e.Type != events.TypeConfigUpdated {
+			continue
+		}
+		// Drain any same-type events queued behind us before scheduling work,
+		// belt-and-braces alongside the debounce timer for cases where the
+		// channel buffer is full and Publish is dropping.
+		drainConfigUpdates(ch)
+		if debouncer == nil {
+			debouncer = time.AfterFunc(configDebounce, apply)
+		} else {
+			debouncer.Reset(configDebounce)
+		}
+	}
+}
+
+// drainConfigUpdates removes any already-buffered config_updated events from
+// the channel without blocking. Non-config events are left untouched (this
+// channel currently only receives config_updated, but stay defensive).
+func drainConfigUpdates(ch <-chan events.Event) {
+	for {
+		select {
+		case e, ok := <-ch:
+			if !ok {
+				return
+			}
+			if e.Type != events.TypeConfigUpdated {
+				// Drop on the floor: this goroutine doesn't act on other
+				// types, and another subscriber will have received it.
+				continue
+			}
+		default:
+			return
+		}
+	}
+}
+
+// stringSetsEqual reports whether two string slices contain the same set of
+// values (order-insensitive, duplicate-collapsed). The cron-window list, the
+// notifier URL list, and the subscribed-types list are all semantically sets,
+// so a reorder by the operator should not trigger a hot-reload.
+func stringSetsEqual(a, b []string) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	sa := append([]string(nil), a...)
+	sb := append([]string(nil), b...)
+	sort.Strings(sa)
+	sort.Strings(sb)
+	sa = dedupSorted(sa)
+	sb = dedupSorted(sb)
+	if len(sa) != len(sb) {
+		return false
+	}
+	for i := range sa {
+		if sa[i] != sb[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func dedupSorted(s []string) []string {
+	if len(s) < 2 {
+		return s
+	}
+	out := s[:1]
+	for i := 1; i < len(s); i++ {
+		if s[i] != out[len(out)-1] {
+			out = append(out, s[i])
+		}
+	}
+	return out
+}
 
 type runtimeConfig struct {
 	DailyQuotaGB     int      `json:"daily_quota_gb"`
@@ -238,11 +496,14 @@ type runtimeConfig struct {
 
 func loadRuntime(ctx context.Context, db *gorm.DB) runtimeConfig {
 	rc := runtimeConfig{
-		MaxRateMBps:      10,
-		MaxConcurrent:    4,
-		Windows:          []string{"* 0-6 * * *"},
-		DefaultUA:        "Mozilla/5.0 (compatible; glutton/1.0)",
-		SubscribedEvents: []string{"quota_reached_daily", "quota_reached_monthly", "sources_mass_failure"},
+		MaxRateMBps:   10,
+		MaxConcurrent: 4,
+		Windows:       []string{"* 0-6 * * *"},
+		DefaultUA:     "Mozilla/5.0 (compatible; glutton/1.0)",
+		// source_cooldown is included by default so operators are notified
+		// when a source enters back-off — it's a strong "something is wrong"
+		// signal even though persistence happens unconditionally.
+		SubscribedEvents: events.DefaultSubscribedTypes(),
 	}
 	tryDecode := func(key string, dst any) {
 		if v, err := store.GetConfig(db, key); err == nil {
@@ -257,14 +518,19 @@ func loadRuntime(ctx context.Context, db *gorm.DB) runtimeConfig {
 	tryDecode("default_ua", &rc.DefaultUA)
 	tryDecode("notifier_urls", &rc.NotifierURLs)
 	tryDecode("subscribed_events", &rc.SubscribedEvents)
-	_ = ctx // reserved for future per-key context plumbing
+	if rc.MaxRateMBps <= 0 {
+		rc.MaxRateMBps = 10
+	}
+	if rc.MaxConcurrent <= 0 {
+		rc.MaxConcurrent = 4
+	}
+	_ = ctx
 	return rc
 }
 
-func buildSourcePool(ctx context.Context, db *gorm.DB, loc *time.Location) *sources.Pool {
+func buildSourcePool(db *gorm.DB) *sources.Pool {
 	rows, _ := store.ListEnabledSources(db)
 	if len(rows) == 0 {
-		// First-run seed: import builtins.
 		bs, _ := sources.LoadBuiltins()
 		for _, b := range bs {
 			_ = store.CreateSource(db, &store.Source{
@@ -282,9 +548,29 @@ func buildSourcePool(ctx context.Context, db *gorm.DB, loc *time.Location) *sour
 			CooldownUntil: time.Unix(r.CooldownUntil, 0),
 		})
 	}
-	_ = ctx
-	_ = loc
 	return sources.NewPool(cands, rand.New(rand.NewSource(time.Now().UnixNano())))
+}
+
+// newConsumerHTTPClient returns the http.Client used by the download workers.
+// The transport's DialContext is wrapped with sources.SafeDialerControl so a
+// post-validation DNS rebinding to a private IP fails at SYN time instead of
+// quietly succeeding.
+func newConsumerHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   sources.SafeDialerControl,
+	}
+	tr := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           dialer.DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+	return &http.Client{Transport: tr}
 }
 
 func pickUA(perSource, def string) string {
@@ -294,13 +580,6 @@ func pickUA(perSource, def string) string {
 	return def
 }
 
-// burstImpl runs the scheduler regardless of cron window until the minute or
-// byte cap hits (cap of 0 = no limit on that dimension; the handler enforces
-// "at least one non-zero"). Quotas still apply via scheduler Tick.
-//
-// Generation token: a new Burst cancels the previous goroutine; only the
-// latest generation may Deactivate, otherwise a stale goroutine waking after
-// supersession would undo the new burst's Activate.
 type burstImpl struct {
 	state     *scheduler.State
 	bytesUsed func() int64
@@ -322,11 +601,22 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 	b.cancel = cancel
 	b.mu.Unlock()
 
-	_ = b.state.Activate()
+	// State-side deadline: minutes win when set; otherwise fall back to a
+	// hard 2h ceiling so a stuck byte cap can't pin Running indefinitely.
+	deadline := time.Time{}
+	switch {
+	case minutes > 0:
+		deadline = time.Now().Add(time.Duration(minutes) * time.Minute)
+	case bytes > 0:
+		deadline = time.Now().Add(byteOnlyBurstSafetyTimeout)
+	}
+
+	b.state.EndBurst()
+	_ = b.state.Activate(deadline)
 	startBytes := b.bytesUsed()
 	if b.bus != nil {
 		b.bus.Publish(events.Event{
-			Type:    "burst_started",
+			Type:    events.TypeBurstStarted,
 			Level:   "info",
 			Message: "manual burst started",
 			Data:    map[string]any{"minutes": minutes, "bytes": bytes},
@@ -335,8 +625,14 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 
 	go func() {
 		var timeoutC <-chan time.Time
-		if minutes > 0 {
+		// Time-cap channel: minutes if set, else the byte-only safety ceiling.
+		switch {
+		case minutes > 0:
 			tm := time.NewTimer(time.Duration(minutes) * time.Minute)
+			defer tm.Stop()
+			timeoutC = tm.C
+		case bytes > 0:
+			tm := time.NewTimer(byteOnlyBurstSafetyTimeout)
 			defer tm.Stop()
 			timeoutC = tm.C
 		}
@@ -358,6 +654,9 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 				reason = "superseded"
 				done = true
 			case <-timeoutC:
+				if bytes > 0 && minutes == 0 {
+					reason = "safety_timeout"
+				}
 				done = true
 			case <-pollC:
 			}
@@ -370,10 +669,11 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 		}
 		b.mu.Unlock()
 		if isLatest {
+			b.state.EndBurst()
 			_ = b.state.Deactivate()
 			if b.bus != nil {
 				b.bus.Publish(events.Event{
-					Type:    "burst_ended",
+					Type:    events.TypeBurstEnded,
 					Level:   "info",
 					Message: "manual burst ended: " + reason,
 					Data: map[string]any{
@@ -386,9 +686,6 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 	}()
 }
 
-// runRateSampler reports current_rate_bps as delta(today-bytes)/elapsed over
-// a sliding 5s window, sampled at 1Hz. OnProgress feeds today-bytes per chunk
-// so this reflects active downloads, not just completed jobs.
 func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.LiveCounters) {
 	const window = 5
 	type sample struct {
@@ -404,7 +701,6 @@ func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.L
 			return
 		case now := <-t.C:
 			cur := today.Load()
-			// In-place head-shift keeps cap bounded; ring = ring[1:] would leak.
 			cutoff := now.Add(-time.Duration(window) * time.Second)
 			drop := 0
 			for drop < len(ring) && ring[drop].ts.Before(cutoff) {
@@ -456,17 +752,15 @@ func runRetentionAndResets(
 			if d != lastDay {
 				today.Store(0)
 				_ = state.ResetQuota()
-				bus.Publish(events.Event{Type: "daily_reset", Level: "info", Message: "daily quota reset"})
+				bus.Publish(events.Event{Type: events.TypeDailyReset, Level: "info", Message: "daily quota reset"})
 				lastDay = d
-				// Purge buckets older than 30 days.
 				_ = store.PurgeTrafficBefore(db, store.HourBucket(now.Add(-30*24*time.Hour)))
-				// Purge events older than 90 days.
 				_ = store.PurgeEventsBefore(db, now.Add(-90*24*time.Hour).Unix())
 			}
 			if m != lastMonth {
 				month.Store(0)
 				lastMonth = m
-				bus.Publish(events.Event{Type: "monthly_reset", Level: "info", Message: "monthly quota reset"})
+				bus.Publish(events.Event{Type: events.TypeMonthlyReset, Level: "info", Message: "monthly quota reset"})
 			}
 		}
 	}

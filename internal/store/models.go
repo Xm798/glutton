@@ -47,12 +47,16 @@ type TrafficBucket struct {
 
 func (TrafficBucket) TableName() string { return "traffic_buckets" }
 
+// Event is the persisted form of events.Event. EventID mirrors the in-process
+// monotonic id assigned by the bus so SSE frames and history rows share one
+// key space; ID remains the autoincrement DB pk for ordering by insert.
 type Event struct {
-	ID      uint   `gorm:"primaryKey;autoIncrement;column:id"`
-	Ts      int64  `gorm:"not null;column:ts;index:idx_events_ts"`
-	Level   string `gorm:"not null;column:level"`
-	Type    string `gorm:"not null;column:type"`
-	Message string `gorm:"not null;column:message"`
+	ID      uint   `gorm:"primaryKey;autoIncrement;column:id" json:"-"`
+	EventID uint64 `gorm:"not null;default:0;column:event_id;index:idx_events_event_id" json:"id"`
+	Ts      int64  `gorm:"not null;column:ts;index:idx_events_ts" json:"Ts"`
+	Level   string `gorm:"not null;column:level" json:"Level"`
+	Type    string `gorm:"not null;column:type" json:"Type"`
+	Message string `gorm:"not null;column:message" json:"Message"`
 }
 
 func (Event) TableName() string { return "events" }

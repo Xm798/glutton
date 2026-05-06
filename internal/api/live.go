@@ -15,12 +15,11 @@ type LiveCounters struct {
 	updated        time.Time
 }
 
+// Set stamps the current snapshot. updated_at advances on every call so the
+// freshness indicator stays meaningful even when the rate is identically zero.
 func (l *LiveCounters) Set(rateBps, today, month int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.currentRateBps == rateBps && l.todayBytes == today && l.monthBytes == month {
-		return
-	}
 	l.currentRateBps = rateBps
 	l.todayBytes = today
 	l.monthBytes = month

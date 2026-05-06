@@ -49,12 +49,24 @@ export interface VersionInfo {
   date: string;
 }
 
+// Live SSE event payload (TS is RFC3339 timestamp).
 export interface ServerEvent {
-  TS: string; // RFC3339
+  id: number; // monotonic publish id (0 if missing on legacy frames)
+  TS: string;
   Type: string;
   Level: "info" | "warn" | "error" | string;
   Message: string;
   Data?: Record<string, unknown>;
+}
+
+// Persisted event row from GET /api/events/history. Matches internal/store.Event
+// (PascalCase via GORM JSON output).
+export interface EventHistoryItem {
+  id: number; // monotonic publish id (matches ServerEvent.id; same key space)
+  Ts: number;
+  Level: string;
+  Type: string;
+  Message: string;
 }
 
 // Runtime config — values are JSON-encoded server-side, but the GET endpoint
@@ -71,3 +83,16 @@ export interface RuntimeConfig {
 }
 
 export type SchedulerStatus = "idle" | "running" | "paused" | "quota_reached";
+
+export interface ControlStatus {
+  status: SchedulerStatus;
+  burst_active: boolean;
+}
+
+// Catalog of event types known by the backend, plus the subset enabled by
+// default on a fresh install. Pulled at runtime by the settings UI to avoid
+// FE/BE drift (see M-4 in the round-3 review).
+export interface EventTypesCatalog {
+  all: string[];
+  default: string[];
+}

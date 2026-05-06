@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -60,25 +61,50 @@ type Config struct {
 }
 
 type Scheduler struct {
-	cfg Config
+	cfg     Config
+	windows atomic.Pointer[Windows] // hot-swappable for runtime config updates
+	quotas  atomic.Pointer[quotaCaps]
+}
+
+type quotaCaps struct {
+	daily   int64
+	monthly int64
 }
 
 func New(cfg Config) *Scheduler {
 	if cfg.Now == nil {
-		cfg.Now = func() time.Time { return time.Now().In(cfg.Windows.loc) }
+		loc := time.Local
+		if cfg.Windows != nil && cfg.Windows.loc != nil {
+			loc = cfg.Windows.loc
+		}
+		cfg.Now = func() time.Time { return time.Now().In(loc) }
 	}
 	if cfg.TickInterval == 0 {
 		cfg.TickInterval = time.Second
 	}
-	return &Scheduler{cfg: cfg}
+	s := &Scheduler{cfg: cfg}
+	s.windows.Store(cfg.Windows)
+	s.quotas.Store(&quotaCaps{daily: cfg.DailyQuotaBytes, monthly: cfg.MonthlyQuotaBytes})
+	return s
+}
+
+// SetWindows hot-swaps the cron schedules. Safe to call from any goroutine.
+func (s *Scheduler) SetWindows(w *Windows) {
+	s.windows.Store(w)
+}
+
+// SetQuotas hot-swaps the daily/monthly byte caps. 0 = unlimited.
+func (s *Scheduler) SetQuotas(daily, monthly int64) {
+	s.quotas.Store(&quotaCaps{daily: daily, monthly: monthly})
 }
 
 // Tick re-evaluates state once. Exposed for unit tests; Run calls it on a timer.
 func (s *Scheduler) Tick() {
 	now := s.cfg.Now()
+	caps := s.quotas.Load()
 
 	// Quota checks take highest priority; only transition + notify on state change.
-	if s.cfg.DailyQuotaBytes > 0 && s.cfg.BytesUsedDaily() >= s.cfg.DailyQuotaBytes {
+	if caps.daily > 0 && s.cfg.BytesUsedDaily() >= caps.daily {
 		if s.cfg.State.Get() != QuotaReached {
 			_ = s.cfg.State.QuotaReached()
 			if s.cfg.OnQuotaReached != nil {
@@ -87,7 +113,7 @@ func (s *Scheduler) Tick() {
 		}
 		return
 	}
-	if s.cfg.MonthlyQuotaBytes > 0 && s.cfg.BytesUsedMonthly() >= s.cfg.MonthlyQuotaBytes {
+	if caps.monthly > 0 && s.cfg.BytesUsedMonthly() >= caps.monthly {
 		if s.cfg.State.Get() != QuotaReached {
 			_ = s.cfg.State.QuotaReached()
 			if s.cfg.OnQuotaReached != nil {
@@ -97,7 +123,8 @@ func (s *Scheduler) Tick() {
 		return
 	}
 
-	if s.cfg.Windows.Contains(now) {
+	w := s.windows.Load()
+	if w.Contains(now) {
 		_ = s.cfg.State.Activate()
 	} else {
 		_ = s.cfg.State.Deactivate()

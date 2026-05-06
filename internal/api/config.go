@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cyrus/glutton/internal/events"
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ import (
 
 type configHandlers struct {
 	store *gorm.DB
+	bus   *events.Bus
 }
 
 func (h *configHandlers) get(c echo.Context) error {
@@ -44,14 +46,31 @@ func (h *configHandlers) put(c echo.Context) error {
 		}
 	}
 	keys := make([]string, 0, len(in))
-	for k := range in {
+	payload := make(map[string]any, len(in))
+	for k, v := range in {
 		keys = append(keys, k)
+		var raw any
+		if err := json.Unmarshal(v, &raw); err == nil {
+			payload[k] = raw
+		} else {
+			payload[k] = string(v)
+		}
 	}
-	_ = store.InsertEvent(h.store, &store.Event{
-		Ts:      time.Now().Unix(),
-		Level:   "info",
-		Type:    "config_updated",
-		Message: fmt.Sprintf("config keys updated: %v", keys),
-	})
+	msg := fmt.Sprintf("config keys updated: %v", keys)
+	if h.bus != nil {
+		// Persistence is handled by the notifier's PersistEvent hook so the
+		// stored row carries the bus's monotonic EventID.
+		h.bus.Publish(events.Event{
+			Type:    events.TypeConfigUpdated,
+			Level:   "info",
+			Message: msg,
+			Data:    payload,
+		})
+	} else {
+		_ = store.InsertEvent(h.store, &store.Event{
+			Ts: time.Now().Unix(), Level: "info",
+			Type: events.TypeConfigUpdated, Message: msg,
+		})
+	}
 	return c.NoContent(http.StatusNoContent)
 }

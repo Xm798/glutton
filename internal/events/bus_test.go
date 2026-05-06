@@ -50,3 +50,33 @@ func TestBusDropsOnSlowSubscriber(t *testing.T) {
 	}
 	// No deadlock = pass.
 }
+
+func TestBusAssignsMonotonicIDs(t *testing.T) {
+	b := events.NewBus(8)
+	defer b.Close()
+	ch := b.Subscribe()
+	for i := 0; i < 5; i++ {
+		b.Publish(events.Event{Type: "x"})
+	}
+	prev := uint64(0)
+	for i := 0; i < 5; i++ {
+		select {
+		case e := <-ch:
+			require.Greater(t, e.ID, prev, "ids must be strictly increasing")
+			prev = e.ID
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for event")
+		}
+	}
+}
+
+func TestBusSubscribeBufferedRespectsBuffer(t *testing.T) {
+	b := events.NewBus(8)
+	defer b.Close()
+	ch := b.SubscribeBuffered(2)
+	for i := 0; i < 10; i++ {
+		b.Publish(events.Event{Type: "x"})
+	}
+	// Buffer is 2 so at most 2 events should be queued.
+	require.LessOrEqual(t, len(ch), 2)
+}

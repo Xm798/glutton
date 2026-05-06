@@ -1,4 +1,7 @@
 import type {
+  ControlStatus,
+  EventHistoryItem,
+  EventTypesCatalog,
   LiveStats,
   RuntimeConfig,
   Source,
@@ -27,6 +30,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface EventHistoryQuery {
+  since?: number;
+  limit?: number;
+  types?: string[];
+}
+
 export const api = {
   version: () => request<VersionInfo>("/api/version"),
 
@@ -48,6 +57,17 @@ export const api = {
   trafficBySource: (since: number) =>
     request<SourceTrafficSummary[]>(`/api/stats/sources?since=${since}`),
 
+  getEventHistory: (q: EventHistoryQuery = {}) => {
+    const params = new URLSearchParams();
+    if (q.since !== undefined) params.set("since", String(q.since));
+    if (q.limit !== undefined) params.set("limit", String(q.limit));
+    if (q.types?.length) params.set("types", q.types.join(","));
+    const qs = params.toString();
+    return request<EventHistoryItem[]>(
+      `/api/events/history${qs ? `?${qs}` : ""}`,
+    );
+  },
+
   pause: () => request<void>("/api/control/pause", { method: "POST" }),
   resume: () => request<void>("/api/control/resume", { method: "POST" }),
   burst: (params: { minutes?: number; bytes?: number }) =>
@@ -59,6 +79,8 @@ export const api = {
       }),
     }),
   resetDaily: () => request<void>("/api/control/reset-daily", { method: "POST" }),
+  controlStatus: () => request<ControlStatus>("/api/control/status"),
+  eventTypes: () => request<EventTypesCatalog>("/api/events/types"),
 };
 
 export { ApiError };

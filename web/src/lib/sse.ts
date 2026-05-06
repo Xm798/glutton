@@ -23,6 +23,10 @@ const KNOWN_TYPES = [
   "source_created",
   "source_updated",
   "source_deleted",
+  "state_changed",
+  "source_cooldown",
+  "burst_started",
+  "burst_ended",
 ];
 
 export function useEventStream(path = "/api/events") {

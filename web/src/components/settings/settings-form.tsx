@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useConfig, usePutConfig } from "@/lib/queries";
+import { useConfig, useEventTypes, usePutConfig } from "@/lib/queries";
 import type { RuntimeConfig } from "@/types/api";
 
 const empty: RuntimeConfig = {
@@ -16,21 +16,42 @@ const empty: RuntimeConfig = {
   time_windows: ["* 0-6 * * *"],
   default_ua: "",
   notifier_urls: [],
-  subscribed_events: ["quota_reached_daily", "quota_reached_monthly", "sources_mass_failure"],
+  subscribed_events: [],
 };
 
 type LinesKey = "time_windows" | "notifier_urls" | "subscribed_events";
 type NumKey = "daily_quota_gb" | "monthly_quota_gb" | "max_rate_mbps" | "max_concurrent";
+
+type FeedbackKind = "ok" | "err";
 
 export function SettingsForm() {
   const { t } = useTranslation();
   const { data, isLoading } = useConfig();
   const put = usePutConfig();
   const [form, setForm] = useState<RuntimeConfig>(empty);
+  const [feedback, setFeedback] = useState<{ kind: FeedbackKind; message: string } | null>(null);
 
+  const { data: typesCatalog } = useEventTypes();
+
+  // Merge the persisted config with backend-supplied defaults so a fresh
+  // install (no subscribed_events row) doesn't silently leave the field
+  // empty — and so changes to the backend default list propagate without
+  // a frontend redeploy (M-4 anti-drift).
   useEffect(() => {
-    if (data) setForm({ ...empty, ...data });
-  }, [data]);
+    const fallback = typesCatalog?.default ?? [];
+    const merged: RuntimeConfig = { ...empty, ...data };
+    if (!merged.subscribed_events?.length && fallback.length) {
+      merged.subscribed_events = fallback;
+    }
+    setForm(merged);
+  }, [data, typesCatalog]);
+
+  // Auto-clear success banner after a few seconds; errors stay until next submit.
+  useEffect(() => {
+    if (!feedback || feedback.kind !== "ok") return;
+    const id = setTimeout(() => setFeedback(null), 3500);
+    return () => clearTimeout(id);
+  }, [feedback]);
 
   if (isLoading) return <div className="text-muted-foreground">{t("common.loading")}</div>;
 
@@ -71,7 +92,14 @@ export function SettingsForm() {
       className="space-y-6"
       onSubmit={(e) => {
         e.preventDefault();
-        put.mutate(form);
+        setFeedback(null);
+        put.mutate(form, {
+          onSuccess: () => setFeedback({ kind: "ok", message: t("settings.saveSuccess") }),
+          onError: (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            setFeedback({ kind: "err", message: t("settings.saveError", { msg }) });
+          },
+        });
       }}
     >
       <Card>
@@ -109,9 +137,28 @@ export function SettingsForm() {
         <CardHeader><CardTitle>{t("settings.notifications")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {linesField("notifier_urls", t("settings.shoutrrrUrls"), t("settings.shoutrrrHint"))}
-          {linesField("subscribed_events", t("settings.subscribedEvents"), t("settings.subscribedEventsHint"))}
+          {linesField(
+            "subscribed_events",
+            t("settings.subscribedEvents"),
+            t("settings.subscribedEventsHint", {
+              types: typesCatalog?.all?.join(", ") ?? t("settings.eventTypesLoading"),
+            }),
+          )}
         </CardContent>
       </Card>
+
+      {feedback && (
+        <div
+          role="status"
+          className={
+            feedback.kind === "ok"
+              ? "rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
+              : "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300"
+          }
+        >
+          {feedback.message}
+        </div>
+      )}
 
       <div className="flex justify-end">
         <Button type="submit" disabled={put.isPending}>

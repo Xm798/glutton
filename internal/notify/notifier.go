@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/cyrus/glutton/internal/events"
@@ -23,6 +24,8 @@ type Config struct {
 
 type Notifier struct {
 	cfg    Config
+	mu     sync.RWMutex
+	urls   []string
 	subSet map[string]struct{}
 	// ready is closed once Run has subscribed to the bus, allowing callers
 	// to gate on readiness before publishing events.
@@ -37,7 +40,41 @@ func New(cfg Config) *Notifier {
 	if cfg.Sender == nil {
 		cfg.Sender = shoutrrrSender{}
 	}
-	return &Notifier{cfg: cfg, subSet: subs, ready: make(chan struct{})}
+	return &Notifier{
+		cfg:    cfg,
+		urls:   append([]string(nil), cfg.URLs...),
+		subSet: subs,
+		ready:  make(chan struct{}),
+	}
+}
+
+// SetURLs swaps the destination URL list atomically.
+func (n *Notifier) SetURLs(urls []string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.urls = append([]string(nil), urls...)
+}
+
+// SetSubscribedTypes swaps the type allowlist atomically.
+func (n *Notifier) SetSubscribedTypes(types []string) {
+	set := make(map[string]struct{}, len(types))
+	for _, t := range types {
+		set[t] = struct{}{}
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.subSet = set
+}
+
+func (n *Notifier) snapshot() (urls []string, subs map[string]struct{}) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	urls = append([]string(nil), n.urls...)
+	subs = make(map[string]struct{}, len(n.subSet))
+	for k := range n.subSet {
+		subs[k] = struct{}{}
+	}
+	return
 }
 
 // Ready returns a channel that is closed once Run has subscribed to the bus.
@@ -61,11 +98,12 @@ func (n *Notifier) Run(ctx context.Context, bus *events.Bus) {
 			if n.cfg.PersistEvent != nil {
 				_ = n.cfg.PersistEvent(ctx, e)
 			}
-			if _, want := n.subSet[e.Type]; !want {
+			urls, subs := n.snapshot()
+			if _, want := subs[e.Type]; !want {
 				continue
 			}
 			msg := fmt.Sprintf("[glutton/%s] %s", e.Type, e.Message)
-			for _, u := range n.cfg.URLs {
+			for _, u := range urls {
 				_ = n.cfg.Sender.Send(ctx, u, msg)
 			}
 		}

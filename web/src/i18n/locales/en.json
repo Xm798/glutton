@@ -68,7 +68,7 @@
   },
   "settings": {
     "title": "Settings",
-    "intro": "Config is persisted to the database. Quota, rate, and schedule changes take effect on the next process restart.",
+    "intro": "Config is persisted to the database. Most changes (rate, schedule, quotas, notifier, workers) are applied live without restart.",
     "quotasAndRate": "Quotas & rate",
     "dailyQuotaGb": "Daily quota (GB)",
     "monthlyQuotaGb": "Monthly quota (GB)",
@@ -85,11 +85,14 @@
     "shoutrrrUrls": "Shoutrrr URLs (one per line)",
     "shoutrrrHint": "e.g. telegram://token@telegram?chats=123",
     "subscribedEvents": "Subscribed event types (one per line)",
-    "subscribedEventsHint": "Examples: quota_reached_daily, quota_reached_monthly, sources_mass_failure, error_critical"
+    "subscribedEventsHint": "Server publishes: {{types}}. Edit to taste; defaults are restored when left empty.",
+    "saveSuccess": "Saved. Changes applied live.",
+    "saveError": "Save failed: {{msg}}",
+    "eventTypesLoading": "loading types…"
   },
   "events": {
     "title": "Events",
-    "intro": "Live tail of the last 100 events received via SSE.",
+    "intro": "Recent events: in-memory live tail merged with persisted history (server-side, last 200).",
     "filterPlaceholder": "Filter by type, level, or message…",
     "empty": "No events received yet."
   }

@@ -20,7 +20,7 @@ func (h *controlHandlers) pause(c echo.Context) error {
 	}
 	_ = h.state.Pause()
 	if h.bus != nil {
-		h.bus.Publish(events.Event{Type: "service_paused", Level: "info", Message: "paused by operator"})
+		h.bus.Publish(events.Event{Type: events.TypeServicePaused, Level: "info", Message: "paused by operator"})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -31,7 +31,7 @@ func (h *controlHandlers) resume(c echo.Context) error {
 	}
 	_ = h.state.Resume()
 	if h.bus != nil {
-		h.bus.Publish(events.Event{Type: "service_resumed", Level: "info", Message: "resumed by operator"})
+		h.bus.Publish(events.Event{Type: events.TypeServiceResumed, Level: "info", Message: "resumed by operator"})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -39,6 +39,9 @@ func (h *controlHandlers) resume(c echo.Context) error {
 func (h *controlHandlers) burstNow(c echo.Context) error {
 	if h.burst == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "burst not configured")
+	}
+	if h.state != nil && h.state.Get() == scheduler.QuotaReached {
+		return echo.NewHTTPError(http.StatusConflict, "quota reached; reset before bursting")
 	}
 	var in struct {
 		Minutes int   `json:"minutes"`
@@ -64,7 +67,18 @@ func (h *controlHandlers) resetDaily(c echo.Context) error {
 	}
 	_ = h.state.ResetQuota()
 	if h.bus != nil {
-		h.bus.Publish(events.Event{Type: "daily_reset_manual", Level: "info", Message: "daily counter manually reset"})
+		h.bus.Publish(events.Event{Type: events.TypeDailyResetManual, Level: "info", Message: "daily counter manually reset"})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *controlHandlers) status(c echo.Context) error {
+	if h.state == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "scheduler not configured")
+	}
+	st := h.state.Get()
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":       st.String(),
+		"burst_active": h.state.BurstActive(),
+	})
 }

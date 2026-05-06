@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cyrus/glutton/internal/api"
+	"github.com/cyrus/glutton/internal/events"
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -42,4 +44,31 @@ func TestPutAndGetConfig(t *testing.T) {
 	require.JSONEq(t, "100", string(got["daily_quota_gb"]))
 	require.JSONEq(t, "10", string(got["max_rate_mbps"]))
 	require.JSONEq(t, `["* 0-6 * * *"]`, string(got["time_windows"]))
+}
+
+func TestPutConfigPublishesUpdateEvent(t *testing.T) {
+	db := newDB(t)
+	bus := events.NewBus(8)
+	defer bus.Close()
+	ch := bus.Subscribe()
+	srv := api.New(api.Deps{Store: db, Bus: bus})
+
+	body := `{"max_rate_mbps": 25, "time_windows": ["* * * * *"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	select {
+	case e := <-ch:
+		require.Equal(t, events.TypeConfigUpdated, e.Type)
+		require.NotNil(t, e.Data)
+		require.EqualValues(t, 25, e.Data["max_rate_mbps"])
+		tw, ok := e.Data["time_windows"].([]any)
+		require.True(t, ok)
+		require.Equal(t, "* * * * *", tw[0])
+	case <-time.After(time.Second):
+		t.Fatal("no config_updated event published")
+	}
 }

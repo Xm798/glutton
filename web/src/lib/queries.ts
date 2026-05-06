@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, type EventHistoryQuery } from "./api";
 import type { RuntimeConfig, SourceInput } from "@/types/api";
 
 export const qk = {
@@ -13,6 +13,9 @@ export const qk = {
   liveStats: ["stats", "live"] as const,
   trafficSince: (since: number) => ["stats", "history", since] as const,
   trafficBySource: (since: number) => ["stats", "sources", since] as const,
+  eventHistory: (q: EventHistoryQuery) => ["events", "history", q] as const,
+  controlStatus: ["control", "status"] as const,
+  eventTypes: ["events", "types"] as const,
 };
 
 export const useVersion = () => useQuery({ queryKey: qk.version, queryFn: api.version });
@@ -42,6 +45,28 @@ export const useTrafficBySource = (since: number) =>
     queryKey: qk.trafficBySource(since),
     queryFn: () => api.trafficBySource(since),
     refetchInterval: 30_000,
+  });
+
+export const useEventHistory = (q: EventHistoryQuery = { limit: 100 }) =>
+  useQuery({
+    queryKey: qk.eventHistory(q),
+    queryFn: () => api.getEventHistory(q),
+    refetchOnMount: "always",
+    staleTime: 30_000,
+  });
+
+export const useEventTypes = () =>
+  useQuery({
+    queryKey: qk.eventTypes,
+    queryFn: api.eventTypes,
+    staleTime: 5 * 60_000,
+  });
+
+export const useControlStatus = () =>
+  useQuery({
+    queryKey: qk.controlStatus,
+    queryFn: api.controlStatus,
+    refetchInterval: 10_000,
   });
 
 export const usePutConfig = () => {

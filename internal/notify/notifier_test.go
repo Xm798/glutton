@@ -41,3 +41,37 @@ func TestNotifierFiltersBySubscribedTypes(t *testing.T) {
 	require.Eventually(t, func() bool { return rec.count.Load() == 1 },
 		time.Second, 10*time.Millisecond)
 }
+
+func TestNotifierHotUpdateURLsAndTypes(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+
+	rec := &recorder{}
+	n := notify.New(notify.Config{
+		URLs:            []string{"a://"},
+		SubscribedTypes: []string{"x"},
+		Sender:          rec,
+		PersistEvent:    func(_ context.Context, _ events.Event) error { return nil },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go n.Run(ctx, bus)
+	<-n.Ready()
+
+	bus.Publish(events.Event{Type: "x", Message: "1"})
+	require.Eventually(t, func() bool { return rec.count.Load() == 1 },
+		time.Second, 10*time.Millisecond)
+
+	// Add a second URL → next match fires twice.
+	n.SetURLs([]string{"a://", "b://"})
+	bus.Publish(events.Event{Type: "x", Message: "2"})
+	require.Eventually(t, func() bool { return rec.count.Load() == 3 },
+		time.Second, 10*time.Millisecond)
+
+	// Change subscriptions to a different type → "x" no longer fires.
+	n.SetSubscribedTypes([]string{"y"})
+	bus.Publish(events.Event{Type: "x", Message: "3"})
+	bus.Publish(events.Event{Type: "y", Message: "4"})
+	require.Eventually(t, func() bool { return rec.count.Load() == 5 },
+		time.Second, 10*time.Millisecond)
+}

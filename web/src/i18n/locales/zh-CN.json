@@ -68,7 +68,7 @@
   },
   "settings": {
     "title": "设置",
-    "intro": "配置已持久化至数据库。配额、速率、调度等变更将在下次进程重启后生效。",
+    "intro": "配置已持久化至数据库。多数变更（速率、调度、配额、通知、并发数）会立即热生效，无需重启。",
     "quotasAndRate": "配额与速率",
     "dailyQuotaGb": "每日配额（GB）",
     "monthlyQuotaGb": "每月配额（GB）",
@@ -85,11 +85,14 @@
     "shoutrrrUrls": "Shoutrrr URL（每行一条）",
     "shoutrrrHint": "例如：telegram://token@telegram?chats=123",
     "subscribedEvents": "订阅事件类型（每行一条）",
-    "subscribedEventsHint": "例如：quota_reached_daily、quota_reached_monthly、sources_mass_failure、error_critical"
+    "subscribedEventsHint": "服务端可用类型：{{types}}。留空则使用服务端推荐的默认订阅。",
+    "saveSuccess": "已保存，配置已实时生效。",
+    "saveError": "保存失败：{{msg}}",
+    "eventTypesLoading": "正在加载事件类型…"
   },
   "events": {
     "title": "事件",
-    "intro": "通过 SSE 实时接收的最近 100 条事件。",
+    "intro": "最近事件：实时 SSE 流与持久化历史合并（服务端最近 200 条）。",
     "filterPlaceholder": "按类型、级别或消息过滤…",
     "empty": "暂未收到事件。"
   }

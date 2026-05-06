@@ -135,3 +135,46 @@ func TestSaveSourceDoesNotClobberHealthStats(t *testing.T) {
 	require.Equal(t, int64(5_000_000), got.AvgSpeedBps)
 	require.Equal(t, int64(1_700_000_000), got.LastSuccessAt)
 }
+
+func TestListEventsFilteredPushesTypePredicateBelowLimit(t *testing.T) {
+	db := openTestDB(t)
+
+	for i := 1; i <= 30; i++ {
+		require.NoError(t, store.InsertEvent(db, &store.Event{
+			Ts: int64(1000 + i), Level: "info", Type: "noise", Message: "x",
+		}))
+	}
+	for i := 0; i < 3; i++ {
+		require.NoError(t, store.InsertEvent(db, &store.Event{
+			Ts: int64(900 - i), Level: "warn", Type: "wanted", Message: "y",
+		}))
+	}
+
+	rows, err := store.ListEventsFiltered(db, 0, 5, []string{"wanted"})
+	require.NoError(t, err)
+	require.Len(t, rows, 3, "all 3 'wanted' rows must come back even though 30 newer 'noise' rows exist")
+	for _, r := range rows {
+		require.Equal(t, "wanted", r.Type)
+	}
+
+	// Empty slice == no filter.
+	all, err := store.ListEventsFiltered(db, 0, 100, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 33)
+}
+
+func TestMaxEventIDOnEmptyAndPopulated(t *testing.T) {
+	db := openTestDB(t)
+
+	got, err := store.MaxEventID(db)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), got)
+
+	require.NoError(t, store.InsertEvent(db, &store.Event{EventID: 7, Ts: 1, Level: "info", Type: "x", Message: "m"}))
+	require.NoError(t, store.InsertEvent(db, &store.Event{EventID: 99, Ts: 2, Level: "info", Type: "x", Message: "m"}))
+	require.NoError(t, store.InsertEvent(db, &store.Event{EventID: 42, Ts: 3, Level: "info", Type: "x", Message: "m"}))
+
+	got, err = store.MaxEventID(db)
+	require.NoError(t, err)
+	require.Equal(t, uint64(99), got)
+}
