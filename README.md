@@ -76,7 +76,7 @@ Process-level (env):
 Runtime (set via `PUT /api/config` or the web UI):
 
 - `daily_quota_gb`, `monthly_quota_gb` (0 = unlimited)
-- `max_rate_mbps` (default 10 — never zero on first install)
+- `max_rate_mbps` (default 10; 0 = unlimited)
 - `max_concurrent` (default 4)
 - `time_windows` — array of cron expressions, 5-field, minute first (e.g. `["* 0-6 * * *"]` = every minute of hours 0-6)
 - `default_ua`, `notifier_urls`, `subscribed_events`

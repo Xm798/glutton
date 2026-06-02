@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -103,6 +104,10 @@ func run() error {
 	var lastMassFailureAt atomic.Int64
 
 	state := scheduler.NewState()
+	// Assigned below; captured by the transition hook. The hook only fires once
+	// the scheduler/server goroutines start (after this assignment), so the read
+	// is safely ordered after the write.
+	var consumerPool *consumer.Pool
 	state.SetTransitionHook(func(from, to scheduler.Status) {
 		bus.Publish(events.Event{
 			Type:    events.TypeStateChanged,
@@ -110,6 +115,16 @@ func run() error {
 			Message: fmt.Sprintf("state %s -> %s", from, to),
 			Data:    map[string]any{"from": from.String(), "to": to.String()},
 		})
+		if consumerPool == nil {
+			return
+		}
+		// Leaving Running must stop bandwidth immediately by cancelling in-flight
+		// downloads; returning to Running re-arms a live context for new jobs.
+		if to == scheduler.Running {
+			consumerPool.ResumeInFlight()
+		} else {
+			consumerPool.AbortInFlight()
+		}
 	})
 	live := &api.LiveCounters{}
 
@@ -150,12 +165,9 @@ func run() error {
 	var lastPickedSourceID atomic.Int64
 	lastPickedSourceID.Store(-1)
 
-	limiter := rate.NewLimiter(
-		rate.Limit(rt.MaxRateMBps*1024*1024),
-		int(rt.MaxRateMBps*1024*1024),
-	)
+	limiter := rate.NewLimiter(limitFor(rt.MaxRateMBps))
 
-	consumerPool := consumer.NewPool(consumer.PoolConfig{
+	consumerPool = consumer.NewPool(consumer.PoolConfig{
 		Workers: rt.MaxConcurrent,
 		Client:  newConsumerHTTPClient(),
 		Limiter: limiter,
@@ -180,12 +192,21 @@ func run() error {
 			monthBytes.Add(n)
 		},
 		OnResult: func(j consumer.Job, n int64, rtt time.Duration, err error) {
+			// A download cancelled because the service left Running (pause / quota
+			// / window close / shutdown) is neither a source success nor failure.
+			// Persist the bytes actually drained — they count toward quota and must
+			// stay consistent with the live counters — but skip RTT and all source
+			// health bookkeeping so an operator action can't corrupt source stats.
+			aborted := errors.Is(err, context.Canceled)
 			if n > 0 {
 				_ = store.AddTraffic(db, store.HourBucket(time.Now().In(loc)), j.SourceID, n)
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
-				if rtt > 0 {
+				if rtt > 0 && !aborted {
 					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
 				}
+			}
+			if aborted {
+				return
 			}
 			handleSourceResult(db, j.SourceID, n, rtt, err, &consecFailMu, consecFails, bus, reloadSourcesFromDB)
 			if err != nil {
@@ -360,9 +381,9 @@ func applyConfigUpdates(
 		snap.Store(&next)
 
 		if prev == nil || prev.MaxRateMBps != next.MaxRateMBps {
-			bps := rate.Limit(next.MaxRateMBps * 1024 * 1024)
-			limiter.SetLimit(bps)
-			limiter.SetBurst(int(next.MaxRateMBps * 1024 * 1024))
+			lim, burst := limitFor(next.MaxRateMBps)
+			limiter.SetLimit(lim)
+			limiter.SetBurst(burst)
 		}
 		// Cron expressions are order-insensitive (the union of windows is
 		// what matters), so an order-only reorder should not churn the
@@ -494,9 +515,27 @@ type runtimeConfig struct {
 	SubscribedEvents []string `json:"subscribed_events"`
 }
 
+const defaultRateMBps = 10
+
+// limitFor maps a MaxRateMBps setting to a token-bucket limit and burst.
+// 0 means unlimited: rate.Inf makes WaitN return immediately and the burst is
+// ignored. A negative value (corrupt input) falls back to the safe default cap
+// so a bad value can never silently uncap bandwidth, independent of any
+// upstream sanitization.
+func limitFor(mbps int) (rate.Limit, int) {
+	switch {
+	case mbps == 0:
+		return rate.Inf, 1 << 20
+	case mbps < 0:
+		mbps = defaultRateMBps
+	}
+	b := mbps * 1024 * 1024
+	return rate.Limit(b), b
+}
+
 func loadRuntime(ctx context.Context, db *gorm.DB) runtimeConfig {
 	rc := runtimeConfig{
-		MaxRateMBps:   10,
+		MaxRateMBps:   defaultRateMBps,
 		MaxConcurrent: 4,
 		Windows:       []string{"* 0-6 * * *"},
 		DefaultUA:     "Mozilla/5.0 (compatible; glutton/1.0)",
@@ -518,8 +557,11 @@ func loadRuntime(ctx context.Context, db *gorm.DB) runtimeConfig {
 	tryDecode("default_ua", &rc.DefaultUA)
 	tryDecode("notifier_urls", &rc.NotifierURLs)
 	tryDecode("subscribed_events", &rc.SubscribedEvents)
-	if rc.MaxRateMBps <= 0 {
-		rc.MaxRateMBps = 10
+	// 0 is a valid, explicit setting meaning "unlimited". A negative value is
+	// nonsensical (corrupt row / bad API write); normalize it to the safe default
+	// so the stored/displayed value matches what limitFor will enforce.
+	if rc.MaxRateMBps < 0 {
+		rc.MaxRateMBps = defaultRateMBps
 	}
 	if rc.MaxConcurrent <= 0 {
 		rc.MaxConcurrent = 4

@@ -34,6 +34,12 @@ type Pool struct {
 	target  int                  // desired worker count under p.mu
 	stopFns []context.CancelFunc // one per active worker; len == active count
 	current atomic.Int32         // observable; updated by spawned goroutines
+	// runCtx scopes every in-flight download. It is cancelled when the service
+	// leaves the Running state (AbortInFlight) and replaced with a fresh live
+	// context when it returns (ResumeInFlight), so an active drain stops at once
+	// without tearing down the idle workers. Guarded by p.mu.
+	runCtx    context.Context
+	runCancel context.CancelFunc
 }
 
 func NewPool(cfg PoolConfig) *Pool {
@@ -54,9 +60,48 @@ func (p *Pool) Start(ctx context.Context) {
 	}
 	p.started = true
 	p.rootCtx = ctx
+	p.runCtx, p.runCancel = context.WithCancel(ctx)
 	want := p.target
 	p.spawnLocked(want)
 	p.mu.Unlock()
+}
+
+// AbortInFlight cancels every active download so bandwidth stops the moment the
+// service leaves the Running state (pause / quota / window close). Idle workers
+// keep running; the run context stays cancelled until ResumeInFlight refreshes
+// it, so a job picked in a lost race with the transition is cancelled too.
+// Safe to call before Start (no-op) and from a scheduler transition hook.
+func (p *Pool) AbortInFlight() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.runCancel != nil {
+		p.runCancel()
+	}
+}
+
+// ResumeInFlight installs a fresh, live run context so downloads may start again
+// after the service returns to Running.
+func (p *Pool) ResumeInFlight() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started {
+		return
+	}
+	if p.runCancel != nil {
+		p.runCancel()
+	}
+	p.runCtx, p.runCancel = context.WithCancel(p.rootCtx)
+}
+
+// currentRun returns the live run context for a new job, falling back to a
+// background context before Start has wired one up.
+func (p *Pool) currentRun() context.Context {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.runCtx == nil {
+		return context.Background()
+	}
+	return p.runCtx
 }
 
 func (p *Pool) Wait() { p.wg.Wait() }
@@ -134,7 +179,15 @@ func (p *Pool) runWorker(ctx context.Context) {
 			}
 			continue
 		}
-		n, rtt, err := p.d.Run(ctx, job, p.cfg.OnProgress)
+		// Scope the download to the worker context AND the run context, so it
+		// aborts both on shutdown/resize and on leaving Running. AfterFunc fires
+		// immediately if the run context was already cancelled (lost race with a
+		// pause), closing the gap between Provider and the download start.
+		jobCtx, jobCancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(p.currentRun(), jobCancel)
+		n, rtt, err := p.d.Run(jobCtx, job, p.cfg.OnProgress)
+		stop()
+		jobCancel()
 		if p.cfg.OnResult != nil {
 			p.cfg.OnResult(job, n, rtt, err)
 		}

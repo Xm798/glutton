@@ -2,6 +2,7 @@ package consumer_test
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
 	"net/http"
@@ -45,6 +46,89 @@ func TestWorkerPoolRunsAndStops(t *testing.T) {
 
 	require.Greater(t, bytes.Load(), int64(1<<20))
 	require.Greater(t, jobs.Load(), int32(0))
+}
+
+// TestWorkerPoolAbortsInFlightOnPause verifies that AbortInFlight stops an
+// active download promptly rather than draining the whole body, and that the
+// abort surfaces as context.Canceled so the caller can tell it apart from a
+// genuine completion or source failure. Without this, leaving Running only
+// stopped *new* jobs while the current download kept consuming bandwidth —
+// pinning the live rate at the cap "forever" after stop.
+func TestWorkerPoolAbortsInFlightOnPause(t *testing.T) {
+	srv := streamingServer(t)
+	t.Cleanup(srv.Close)
+
+	var running atomic.Bool
+	running.Store(true)
+	var bytes atomic.Int64
+	var lastErr atomic.Value // error from the most recent OnResult
+
+	pool := consumer.NewPool(consumer.PoolConfig{
+		Workers: 1,
+		Client:  http.DefaultClient,
+		Limiter: rate.NewLimiter(rate.Limit(2<<20), 1<<20), // 2 MB/s
+		Provider: func(_ context.Context) (consumer.Job, bool) {
+			if !running.Load() {
+				return consumer.Job{}, false
+			}
+			return consumer.Job{URL: srv.URL}, true
+		},
+		OnProgress: func(n int64) { bytes.Add(n) },
+		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, err error) {
+			if err != nil {
+				lastErr.Store(err)
+			}
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	pool.Start(ctx)
+
+	require.Eventually(t, func() bool { return bytes.Load() > 256<<10 },
+		2*time.Second, 10*time.Millisecond, "download should start flowing")
+
+	running.Store(false)  // simulate pause: provider stops issuing new jobs
+	pool.AbortInFlight()  // and the in-flight download is cancelled
+	time.Sleep(300 * time.Millisecond)
+	snap := bytes.Load()
+	time.Sleep(500 * time.Millisecond)
+
+	require.Equal(t, snap, bytes.Load(),
+		"no bytes should be consumed after AbortInFlight; in-flight download must stop")
+
+	require.Eventually(t, func() bool {
+		e, _ := lastErr.Load().(error)
+		return errors.Is(e, context.Canceled)
+	}, time.Second, 10*time.Millisecond,
+		"aborted download must report context.Canceled, not a nil/success result")
+}
+
+// TestWorkerPoolResumeAfterAbort verifies that ResumeInFlight re-arms a live
+// context so downloads flow again after an abort — the worker is not torn down.
+func TestWorkerPoolResumeAfterAbort(t *testing.T) {
+	srv := streamingServer(t)
+	t.Cleanup(srv.Close)
+
+	var bytes atomic.Int64
+	pool := consumer.NewPool(consumer.PoolConfig{
+		Workers:    1,
+		Client:     http.DefaultClient,
+		Limiter:    rate.NewLimiter(rate.Limit(4<<20), 1<<20),
+		Provider:   func(_ context.Context) (consumer.Job, bool) { return consumer.Job{URL: srv.URL}, true },
+		OnProgress: func(n int64) { bytes.Add(n) },
+		OnResult:   func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	pool.Start(ctx)
+
+	require.Eventually(t, func() bool { return bytes.Load() > 256<<10 }, 2*time.Second, 10*time.Millisecond)
+	pool.AbortInFlight()
+	pool.ResumeInFlight()
+	resumed := bytes.Load()
+	require.Eventually(t, func() bool { return bytes.Load() > resumed+256<<10 },
+		2*time.Second, 10*time.Millisecond, "downloads must resume after ResumeInFlight")
 }
 
 func TestWorkerPoolStopsImmediatelyOnCancel(t *testing.T) {

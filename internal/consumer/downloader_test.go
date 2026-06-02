@@ -26,6 +26,29 @@ func bigBodyServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+// streamingServer streams data continuously until the client disconnects,
+// modelling a large/long-lived source whose body does not end on its own.
+func streamingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fl, _ := w.(http.Flusher)
+		buf := make([]byte, 64*1024)
+		for {
+			if _, err := w.Write(buf); err != nil {
+				return
+			}
+			if fl != nil {
+				fl.Flush()
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+		}
+	}))
+}
+
 func TestDownloaderRespectsRateLimit(t *testing.T) {
 	srv := bigBodyServer(t)
 	t.Cleanup(srv.Close)

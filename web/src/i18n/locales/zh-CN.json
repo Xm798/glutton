@@ -74,7 +74,7 @@
     "monthlyQuotaGb": "每月配额（GB）",
     "unlimitedHint": "0 表示不限制",
     "maxRate": "最大速率（MB/s）",
-    "maxRateHint": "不可为 0 — 默认 10",
+    "maxRateHint": "0 表示不限速",
     "maxConcurrent": "最大并发连接数",
     "schedule": "调度",
     "timeWindows": "时间窗口（5 字段 cron，每行一条）",

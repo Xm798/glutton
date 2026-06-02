@@ -74,7 +74,7 @@
     "monthlyQuotaGb": "Monthly quota (GB)",
     "unlimitedHint": "0 = unlimited",
     "maxRate": "Max rate (MB/s)",
-    "maxRateHint": "Never zero — defaults to 10",
+    "maxRateHint": "0 = unlimited",
     "maxConcurrent": "Max concurrent connections",
     "schedule": "Schedule",
     "timeWindows": "Time windows (5-field cron, one per line)",

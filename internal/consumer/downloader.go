@@ -30,7 +30,9 @@ func NewDownloader(client *http.Client, limiter *rate.Limiter) *Downloader {
 
 // Run streams the response body into io.Discard under the rate limiter.
 // Returns bytes drained, TTFB (time to first byte), and any error.
-// Returns nil error on context cancellation after partial drain.
+// On context cancellation it returns ctx.Err() (e.g. context.Canceled) after a
+// partial drain, so callers can tell a service-state abort apart from a
+// genuine completion or source failure.
 // onProgress, if non-nil, fires with each chunk's byte count.
 func (d *Downloader) Run(ctx context.Context, j Job, onProgress func(int64)) (int64, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.URL, nil)
@@ -60,7 +62,10 @@ func (d *Downloader) Run(ctx context.Context, j Job, onProgress func(int64)) (in
 	var total int64
 	for {
 		if err := d.limiter.WaitN(ctx, chunk); err != nil {
-			return total, ttfb, nil // ctx canceled — partial drain, no error
+			// ctx cancelled — partial drain. Surface ctx.Err() so callers can
+			// tell a service-state abort (pause/quota/window/shutdown) apart from
+			// a genuine completion or source failure.
+			return total, ttfb, ctx.Err()
 		}
 		n, rerr := io.ReadFull(resp.Body, buf)
 		total += int64(n)
@@ -79,7 +84,7 @@ func (d *Downloader) Run(ctx context.Context, j Job, onProgress func(int64)) (in
 		}
 		if rerr != nil {
 			if ctx.Err() != nil {
-				return total, ttfb, nil
+				return total, ttfb, ctx.Err()
 			}
 			return total, ttfb, fmt.Errorf("read: %w", rerr)
 		}
