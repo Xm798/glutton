@@ -34,7 +34,7 @@ func TestEndToEndRateCap(t *testing.T) {
 	defer store.Close(db)
 
 	require.NoError(t, store.CreateSource(db, &store.Source{
-		Name: "local", URL: origin.URL, UA: "test/1",
+		Name: "local", URLs: []string{origin.URL}, UA: "test/1",
 		Enabled: true, Weight: 1,
 	}))
 
@@ -43,7 +43,7 @@ func TestEndToEndRateCap(t *testing.T) {
 	require.Len(t, rows, 1)
 
 	cands := []sources.Candidate{{
-		ID: int64(rows[0].ID), Name: rows[0].Name, URL: rows[0].URL, Weight: 1,
+		ID: int64(rows[0].ID), Name: rows[0].Name, URLs: rows[0].URLs, Weight: 1,
 	}}
 	pool := sources.NewPool(cands, rand.New(rand.NewSource(1)))
 
@@ -57,11 +57,11 @@ func TestEndToEndRateCap(t *testing.T) {
 		Client:  http.DefaultClient,
 		Limiter: limiter,
 		Provider: func(ctx context.Context) (consumer.Job, bool) {
-			c, ok := pool.Pick(time.Now(), -1)
+			c, url, ok := pool.Pick(time.Now(), -1)
 			if !ok {
 				return consumer.Job{}, false
 			}
-			return consumer.Job{SourceID: uint(c.ID), URL: c.URL}, true
+			return consumer.Job{SourceID: uint(c.ID), URL: url}, true
 		},
 		OnResult: func(_ consumer.Job, n int64, _ time.Duration, _ error) { bytesDrained.Add(n) },
 	})

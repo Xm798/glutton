@@ -30,6 +30,14 @@ func Open(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
 	}
+	// One-time migration: the multi-URL source model replaces the single `url`
+	// column with a json `urls` list. Old data is intentionally discarded — if a
+	// legacy `url` column is present, drop sources (sheds the old column + unique
+	// index) and traffic_buckets (its source_id rows would reference stale ids).
+	if legacySourcesPresent(db) {
+		_ = db.Migrator().DropTable("sources")
+		_ = db.Migrator().DropTable("traffic_buckets")
+	}
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return nil, fmt.Errorf("automigrate: %w", err)
 	}
@@ -53,4 +61,21 @@ func Close(db *gorm.DB) error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// legacySourcesPresent reports whether a pre-multi-URL sources table (with the
+// old `url` column) exists. Uses sqlite's pragma_table_info so it's independent
+// of the current Go struct shape — checking HasColumn(&Source{}, "url") would
+// parse the new struct and always miss.
+func legacySourcesPresent(db *gorm.DB) bool {
+	if !db.Migrator().HasTable("sources") {
+		return false
+	}
+	var n int64
+	if err := db.Raw(
+		`SELECT COUNT(*) FROM pragma_table_info('sources') WHERE name = 'url'`,
+	).Scan(&n).Error; err != nil {
+		return false
+	}
+	return n > 0
 }

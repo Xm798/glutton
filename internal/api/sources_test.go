@@ -18,7 +18,7 @@ func TestCreateAndListSources(t *testing.T) {
 	db := newDB(t)
 	srv := api.New(api.Deps{Store: db})
 
-	body := `{"name":"hetzner","url":"https://speed.hetzner.de/100MB.bin","weight":3,"enabled":true}`
+	body := `{"name":"hetzner","urls":["https://speed.hetzner.de/100MB.bin"],"weight":3,"enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestCreateSourceRejectsBadURL(t *testing.T) {
 	db := newDB(t)
 	srv := api.New(api.Deps{Store: db})
 
-	body := `{"name":"x","url":"http://10.0.0.1/x","weight":1,"enabled":true}`
+	body := `{"name":"x","urls":["http://10.0.0.1/x"],"weight":1,"enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestCreateSourceWritesAuditEvent(t *testing.T) {
 	db := newDB(t)
 	srv := api.New(api.Deps{Store: db})
 
-	body := `{"name":"audit","url":"https://example.com/100MB.bin","weight":1,"enabled":true}`
+	body := `{"name":"audit","urls":["https://example.com/100MB.bin"],"weight":1,"enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -64,6 +64,18 @@ func TestCreateSourceWritesAuditEvent(t *testing.T) {
 	require.Equal(t, "source_created", events[0].Type)
 }
 
+func TestCreateSourceRejectsEmptyURLs(t *testing.T) {
+	db := newDB(t)
+	srv := api.New(api.Deps{Store: db})
+
+	body := `{"name":"x","urls":[],"weight":1,"enabled":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 type fakeReloader struct{ n atomic.Int32 }
 
 func (f *fakeReloader) Reload() { f.n.Add(1) }
@@ -73,7 +85,7 @@ func TestSourcesReloaderInvokedOnCRUD(t *testing.T) {
 	r := &fakeReloader{}
 	srv := api.New(api.Deps{Store: db, SourcesReloader: r})
 
-	body := `{"name":"x","url":"https://example.com/100MB.bin","weight":1,"enabled":true}`
+	body := `{"name":"x","urls":["https://example.com/100MB.bin"],"weight":1,"enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -84,7 +96,7 @@ func TestSourcesReloaderInvokedOnCRUD(t *testing.T) {
 	var created store.Source
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 
-	upd := `{"name":"x2","url":"https://example.com/100MB.bin","weight":2,"enabled":true}`
+	upd := `{"name":"x2","urls":["https://example.com/100MB.bin"],"weight":2,"enabled":true}`
 	req2 := httptest.NewRequest(http.MethodPut, "/api/sources/"+strconv.Itoa(int(created.ID)), strings.NewReader(upd))
 	req2.Header.Set("Content-Type", "application/json")
 	rec2 := httptest.NewRecorder()

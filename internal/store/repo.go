@@ -47,7 +47,7 @@ func CreateSource(db *gorm.DB, s *Source) error {
 func SaveSource(db *gorm.DB, s *Source) error {
 	s.UpdatedAt = time.Now().Unix()
 	return db.Model(s).Select(
-		"name", "url", "ua", "enabled", "weight", "updated_at",
+		"name", "urls", "ua", "enabled", "weight", "updated_at",
 	).Updates(s).Error
 }
 
