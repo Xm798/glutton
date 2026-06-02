@@ -125,6 +125,9 @@ func (h *sourcesHandlers) update(c echo.Context) error {
 	if err := sources.ValidateURLs(in.URLs); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+	if in.Name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
+	}
 	if in.Weight <= 0 {
 		in.Weight = 1
 	}

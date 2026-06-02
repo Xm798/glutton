@@ -35,8 +35,12 @@ func Open(dsn string) (*gorm.DB, error) {
 	// legacy `url` column is present, drop sources (sheds the old column + unique
 	// index) and traffic_buckets (its source_id rows would reference stale ids).
 	if legacySourcesPresent(db) {
-		_ = db.Migrator().DropTable("sources")
-		_ = db.Migrator().DropTable("traffic_buckets")
+		if err := db.Migrator().DropTable("sources"); err != nil {
+			return nil, fmt.Errorf("drop legacy sources: %w", err)
+		}
+		if err := db.Migrator().DropTable("traffic_buckets"); err != nil {
+			return nil, fmt.Errorf("drop legacy traffic_buckets: %w", err)
+		}
 	}
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return nil, fmt.Errorf("automigrate: %w", err)

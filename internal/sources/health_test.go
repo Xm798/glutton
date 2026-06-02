@@ -87,7 +87,7 @@ func TestPoolPickReturnsMemberURL(t *testing.T) {
 func TestPoolEmptyWhenAllOnCooldown(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	pool := sources.NewPool([]sources.Candidate{
-		{ID: 1, Weight: 1, CooldownUntil: now.Add(time.Hour)},
+		{ID: 1, Weight: 1, URLs: []string{"https://a.example/x"}, CooldownUntil: now.Add(time.Hour)},
 	}, rand.New(rand.NewSource(1)))
 	_, _, ok := pool.Pick(now, -1)
 	require.False(t, ok)
