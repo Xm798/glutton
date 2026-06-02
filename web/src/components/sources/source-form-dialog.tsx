@@ -7,6 +7,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { useCreateSource, useUpdateSource } from "@/lib/queries";
 import type { Source, SourceInput } from "@/types/api";
 
@@ -16,11 +17,16 @@ interface Props {
   editing: Source | null;
 }
 
-const empty: SourceInput = { name: "", url: "", ua: "", weight: 1, enabled: true };
+const empty: SourceInput = { name: "", urls: [], ua: "", weight: 1, enabled: true };
+
+function splitURLs(text: string): string[] {
+  return text.split("\n").map((s) => s.trim()).filter(Boolean);
+}
 
 export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
   const { t } = useTranslation();
   const [form, setForm] = useState<SourceInput>(empty);
+  const [urlsText, setUrlsText] = useState("");
   const createMut = useCreateSource();
   const updateMut = useUpdateSource();
 
@@ -28,22 +34,25 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
     if (editing) {
       setForm({
         name: editing.Name,
-        url: editing.URL,
+        urls: editing.URLs,
         ua: editing.UA,
         enabled: editing.Enabled,
         weight: editing.Weight,
       });
+      setUrlsText(editing.URLs.join("\n"));
     } else {
       setForm(empty);
+      setUrlsText("");
     }
   }, [editing, open]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload: SourceInput = { ...form, urls: splitURLs(urlsText) };
     if (editing) {
-      await updateMut.mutateAsync({ id: editing.ID, s: form });
+      await updateMut.mutateAsync({ id: editing.ID, s: payload });
     } else {
-      await createMut.mutateAsync(form);
+      await createMut.mutateAsync(payload);
     }
     onOpenChange(false);
   };
@@ -68,12 +77,13 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="url">{t("sources.url")}</Label>
-              <Input
-                id="url"
-                type="url"
-                value={form.url}
-                onChange={(e) => setForm({ ...form, url: e.target.value })}
+              <Label htmlFor="urls">{t("sources.urls")}</Label>
+              <Textarea
+                id="urls"
+                rows={4}
+                placeholder={t("sources.urlsPlaceholder")}
+                value={urlsText}
+                onChange={(e) => setUrlsText(e.target.value)}
                 required
               />
             </div>
