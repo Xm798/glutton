@@ -2,7 +2,7 @@
 export interface Source {
   ID: number;
   Name: string;
-  URL: string;
+  URLs: string[];
   UA: string;
   Enabled: boolean;
   Weight: number;
@@ -18,7 +18,7 @@ export interface Source {
 
 export interface SourceInput {
   name: string;
-  url: string;
+  urls: string[];
   ua?: string;
   enabled: boolean;
   weight: number;
