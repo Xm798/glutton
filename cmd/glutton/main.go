@@ -127,7 +127,7 @@ func run() error {
 		cands := make([]sources.Candidate, 0, len(rows))
 		for _, r := range rows {
 			cands = append(cands, sources.Candidate{
-				ID: int64(r.ID), Name: r.Name, URL: r.URL, UA: r.UA,
+				ID: int64(r.ID), Name: r.Name, URLs: r.URLs, UA: r.UA,
 				Weight:        r.Weight,
 				CooldownUntil: time.Unix(r.CooldownUntil, 0),
 			})
@@ -163,7 +163,7 @@ func run() error {
 			if state.Get() != scheduler.Running {
 				return consumer.Job{}, false
 			}
-			c, ok := sourcePool.Pick(time.Now().In(loc), lastPickedSourceID.Load())
+			c, url, ok := sourcePool.Pick(time.Now().In(loc), lastPickedSourceID.Load())
 			if !ok {
 				return consumer.Job{}, false
 			}
@@ -171,7 +171,7 @@ func run() error {
 			cur := rtSnap.Load()
 			return consumer.Job{
 				SourceID:  uint(c.ID),
-				URL:       c.URL,
+				URL:       url,
 				UserAgent: pickUA(c.UA, cur.DefaultUA),
 			}, true
 		},
@@ -534,7 +534,7 @@ func buildSourcePool(db *gorm.DB) *sources.Pool {
 		bs, _ := sources.LoadBuiltins()
 		for _, b := range bs {
 			_ = store.CreateSource(db, &store.Source{
-				Name: b.Name, URL: b.URL, UA: b.UA,
+				Name: b.Name, URLs: b.URLs, UA: b.UA,
 				Enabled: true, Weight: b.Weight,
 			})
 		}
@@ -543,7 +543,7 @@ func buildSourcePool(db *gorm.DB) *sources.Pool {
 	cands := make([]sources.Candidate, 0, len(rows))
 	for _, r := range rows {
 		cands = append(cands, sources.Candidate{
-			ID: int64(r.ID), Name: r.Name, URL: r.URL, UA: r.UA,
+			ID: int64(r.ID), Name: r.Name, URLs: r.URLs, UA: r.UA,
 			Weight:        r.Weight,
 			CooldownUntil: time.Unix(r.CooldownUntil, 0),
 		})

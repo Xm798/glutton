@@ -96,6 +96,18 @@ func TestValidateDNSTimeoutEnvVar(t *testing.T) {
 		"validate returned suspiciously fast (%v) — env var may not be honoured", elapsed)
 }
 
+func TestValidateURLs(t *testing.T) {
+	prev := sources.SetResolver(stubResolver{
+		"example.com": {net.ParseIP("93.184.216.34")},
+	})
+	t.Cleanup(func() { sources.SetResolver(prev) })
+
+	require.Error(t, sources.ValidateURLs(nil), "empty list rejected")
+	require.Error(t, sources.ValidateURLs([]string{"https://example.com/a", "ftp://example.com/b"}), "bad scheme rejected")
+	require.Error(t, sources.ValidateURLs([]string{"http://10.0.0.1/x"}), "private IP rejected")
+	require.NoError(t, sources.ValidateURLs([]string{"https://example.com/a", "https://example.com/b"}), "two same-host URLs accepted")
+}
+
 func TestSafeDialerControlRejectsPrivateIPs(t *testing.T) {
 	cases := []struct {
 		addr string

@@ -44,7 +44,7 @@ func TestUpsertAndGetConfig(t *testing.T) {
 func TestSourceCRUDAndHealth(t *testing.T) {
 	db := openTestDB(t)
 
-	s := &store.Source{Name: "h", URL: "https://example.com/100MB.bin", Weight: 3, Enabled: true}
+	s := &store.Source{Name: "h", URLs: []string{"https://example.com/100MB.bin"}, Weight: 3, Enabled: true}
 	require.NoError(t, store.CreateSource(db, s))
 	require.NotZero(t, s.ID)
 	require.NotZero(t, s.CreatedAt)
@@ -66,7 +66,7 @@ func TestSourceCRUDAndHealth(t *testing.T) {
 
 func TestAddTrafficUpsertAccumulates(t *testing.T) {
 	db := openTestDB(t)
-	s := &store.Source{Name: "h", URL: "https://example.com/x", Weight: 1, Enabled: true}
+	s := &store.Source{Name: "h", URLs: []string{"https://example.com/x"}, Weight: 1, Enabled: true}
 	require.NoError(t, store.CreateSource(db, s))
 
 	const bucket int64 = 1_700_000_000
@@ -81,8 +81,8 @@ func TestAddTrafficUpsertAccumulates(t *testing.T) {
 
 func TestTrafficBySourceJoin(t *testing.T) {
 	db := openTestDB(t)
-	a := &store.Source{Name: "a", URL: "https://example.com/a", Weight: 1, Enabled: true}
-	b := &store.Source{Name: "b", URL: "https://example.com/b", Weight: 1, Enabled: true}
+	a := &store.Source{Name: "a", URLs: []string{"https://example.com/a"}, Weight: 1, Enabled: true}
+	b := &store.Source{Name: "b", URLs: []string{"https://example.com/b"}, Weight: 1, Enabled: true}
 	require.NoError(t, store.CreateSource(db, a))
 	require.NoError(t, store.CreateSource(db, b))
 
@@ -116,7 +116,7 @@ func TestEventsInsertListPurge(t *testing.T) {
 
 func TestSaveSourceDoesNotClobberHealthStats(t *testing.T) {
 	db := openTestDB(t)
-	s := &store.Source{Name: "h", URL: "https://example.com/x", Weight: 1, Enabled: true}
+	s := &store.Source{Name: "h", URLs: []string{"https://example.com/x"}, Weight: 1, Enabled: true}
 	require.NoError(t, store.CreateSource(db, s))
 
 	// Consumer records a success.

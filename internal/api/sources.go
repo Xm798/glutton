@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cyrus/glutton/internal/events"
@@ -26,11 +27,22 @@ type sourcesHandlers struct {
 }
 
 type sourceIn struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	UA      string `json:"ua"`
-	Enabled bool   `json:"enabled"`
-	Weight  int    `json:"weight"`
+	Name    string   `json:"name"`
+	URLs    []string `json:"urls"`
+	UA      string   `json:"ua"`
+	Enabled bool     `json:"enabled"`
+	Weight  int      `json:"weight"`
+}
+
+// cleanURLs trims each entry and drops blanks.
+func cleanURLs(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, u := range in {
+		if u = strings.TrimSpace(u); u != "" {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 func (h *sourcesHandlers) reload() {
@@ -74,7 +86,8 @@ func (h *sourcesHandlers) create(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := sources.ValidateURL(in.URL); err != nil {
+	in.URLs = cleanURLs(in.URLs)
+	if err := sources.ValidateURLs(in.URLs); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	if in.Name == "" {
@@ -84,13 +97,13 @@ func (h *sourcesHandlers) create(c echo.Context) error {
 		in.Weight = 1
 	}
 	row := &store.Source{
-		Name: in.Name, URL: in.URL, UA: in.UA,
+		Name: in.Name, URLs: in.URLs, UA: in.UA,
 		Enabled: in.Enabled, Weight: in.Weight,
 	}
 	if err := store.CreateSource(h.store, row); err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("source created: id=%d name=%q url=%q", row.ID, row.Name, row.URL)
+	msg := fmt.Sprintf("source created: id=%d name=%q urls=%d", row.ID, row.Name, len(row.URLs))
 	h.emit(events.TypeSourceCreated, msg, map[string]any{"id": row.ID})
 	h.reload()
 	return c.JSON(http.StatusCreated, row)
@@ -108,8 +121,12 @@ func (h *sourcesHandlers) update(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := sources.ValidateURL(in.URL); err != nil {
+	in.URLs = cleanURLs(in.URLs)
+	if err := sources.ValidateURLs(in.URLs); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if in.Name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
 	}
 	if in.Weight <= 0 {
 		in.Weight = 1
@@ -117,7 +134,7 @@ func (h *sourcesHandlers) update(c echo.Context) error {
 	row := &store.Source{
 		ID:      uint(id),
 		Name:    in.Name,
-		URL:     in.URL,
+		URLs:    in.URLs,
 		UA:      in.UA,
 		Enabled: in.Enabled,
 		Weight:  in.Weight,
@@ -125,7 +142,7 @@ func (h *sourcesHandlers) update(c echo.Context) error {
 	if err := store.SaveSource(h.store, row); err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("source updated: id=%d name=%q url=%q", row.ID, row.Name, row.URL)
+	msg := fmt.Sprintf("source updated: id=%d name=%q urls=%d", row.ID, row.Name, len(row.URLs))
 	h.emit(events.TypeSourceUpdated, msg, map[string]any{"id": row.ID})
 	h.reload()
 	return c.NoContent(http.StatusNoContent)
