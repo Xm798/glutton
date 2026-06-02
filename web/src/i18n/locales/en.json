@@ -56,7 +56,7 @@
     "editSource": "Edit source",
     "name": "Name",
     "urls": "URLs",
-    "urlCount": "{{count}} URL",
+    "urlCount_one": "{{count}} URL",
     "urlCount_other": "{{count}} URLs",
     "urlsPlaceholder": "One URL per line",
     "urlsRequired": "Enter at least one URL",

@@ -56,7 +56,7 @@
     "editSource": "编辑下载源",
     "name": "名称",
     "urls": "地址",
-    "urlCount": "{{count}} 个地址",
+    "urlCount_other": "{{count}} 个地址",
     "urlsPlaceholder": "每行一个地址",
     "urlsRequired": "请至少填写一个地址",
     "toggleUrls": "展开地址",
