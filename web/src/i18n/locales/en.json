@@ -59,6 +59,8 @@
     "urlCount": "{{count}} URL",
     "urlCount_other": "{{count}} URLs",
     "urlsPlaceholder": "One URL per line",
+    "urlsRequired": "Enter at least one URL",
+    "toggleUrls": "Toggle URLs",
     "userAgent": "User-Agent",
     "userAgentOptional": "User-Agent (optional)",
     "weight": "Weight",

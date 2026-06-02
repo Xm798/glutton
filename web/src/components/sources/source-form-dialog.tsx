@@ -27,6 +27,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
   const { t } = useTranslation();
   const [form, setForm] = useState<SourceInput>(empty);
   const [urlsText, setUrlsText] = useState("");
+  const [urlError, setUrlError] = useState<string | null>(null);
   const createMut = useCreateSource();
   const updateMut = useUpdateSource();
 
@@ -34,21 +35,29 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
     if (editing) {
       setForm({
         name: editing.Name,
-        urls: editing.URLs,
+        urls: [...editing.URLs],
         ua: editing.UA,
         enabled: editing.Enabled,
         weight: editing.Weight,
       });
       setUrlsText(editing.URLs.join("\n"));
+      setUrlError(null);
     } else {
       setForm(empty);
       setUrlsText("");
+      setUrlError(null);
     }
   }, [editing, open]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload: SourceInput = { ...form, urls: splitURLs(urlsText) };
+    const urls = splitURLs(urlsText);
+    if (urls.length === 0) {
+      setUrlError(t("sources.urlsRequired"));
+      return;
+    }
+    setUrlError(null);
+    const payload: SourceInput = { ...form, urls };
     if (editing) {
       await updateMut.mutateAsync({ id: editing.ID, s: payload });
     } else {
@@ -86,6 +95,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
                 onChange={(e) => setUrlsText(e.target.value)}
                 required
               />
+              {urlError && <p className="text-sm text-destructive">{urlError}</p>}
             </div>
             <div className="grid gap-1">
               <Label htmlFor="ua">{t("sources.userAgentOptional")}</Label>

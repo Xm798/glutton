@@ -58,6 +58,8 @@
     "urls": "地址",
     "urlCount": "{{count}} 个地址",
     "urlsPlaceholder": "每行一个地址",
+    "urlsRequired": "请至少填写一个地址",
+    "toggleUrls": "展开地址",
     "userAgent": "User-Agent",
     "userAgentOptional": "User-Agent（可选）",
     "weight": "权重",

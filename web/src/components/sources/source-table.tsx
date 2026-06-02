@@ -49,7 +49,7 @@ export function SourceTable({ onEdit }: { onEdit: (s: Source) => void }) {
             <Fragment key={s.ID}>
               <TableRow>
                 <TableCell>
-                  <Button size="icon" variant="ghost" onClick={() => toggle(s.ID)} aria-label="toggle urls">
+                  <Button size="icon" variant="ghost" onClick={() => toggle(s.ID)} aria-label={t("sources.toggleUrls")}>
                     {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </Button>
                 </TableCell>
@@ -83,8 +83,8 @@ export function SourceTable({ onEdit }: { onEdit: (s: Source) => void }) {
                   <TableCell />
                   <TableCell colSpan={7}>
                     <ul className="space-y-1 text-sm text-muted-foreground">
-                      {s.URLs.map((u) => (
-                        <li key={u} className="truncate" title={u}>{u}</li>
+                      {s.URLs.map((u, i) => (
+                        <li key={i} className="truncate" title={u}>{u}</li>
                       ))}
                     </ul>
                   </TableCell>
