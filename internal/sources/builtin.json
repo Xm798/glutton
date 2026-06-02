@@ -1,7 +1,24 @@
 [
-  { "name": "Bilibili 1 (Aliyun CDN)",        "url": "https://s1.hdslb.com/bfs/game-static/web/caster/static/script/vue/da3f37d7fd8339357ed671a94941757e/st.zip", "weight": 5 },
-  { "name": "Bilibili 2 (Aliyun CDN)",        "url": "https://s3.hdslb.com/bfs/game-static/web/caster/static/script/vue/da3f37d7fd8339357ed671a94941757e/st.zip", "weight": 5 },
-  { "name": "Huawei video", "weight": 1, "urls": [
+  { "name": "Bilibili (Aliyun CDN)", "weight": 5, "urls": [
+    "https://s1.hdslb.com/bfs/game-static/web/caster/static/script/vue/da3f37d7fd8339357ed671a94941757e/st.zip",
+    "https://s3.hdslb.com/bfs/game-static/web/caster/static/script/vue/da3f37d7fd8339357ed671a94941757e/st.zip"
+  ] },
+  { "name": "WeChat Windows (Tencent CDN)", "url": "https://dldir1.qq.com/weixin/Windows/WeChatSetup.exe", "weight": 5 },
+  { "name": "CacheFly 200MB",                 "url": "https://cachefly.cachefly.net/200mb.test", "weight": 5 },
+  { "name": "Cloudflare Speedtest 25MB",      "url": "https://speed.cloudflare.com/__down?bytes=25000000", "weight": 5 },
+  { "name": "Baidu Netdisk Android client",   "url": "https://issuecdn.baidupcs.com/issue/netdisk/apk/BaiduNetdiskSetup_wap_share.apk", "weight": 5 },
+  { "name": "Xiaohongshu Android client",     "url": "https://dc.xiaohongshu.com/file/pkgs/base/xiaohongshu.apk", "weight": 5 },
+  { "name": "npmmirror binaries (Aliyun)", "weight": 5, "urls": [
+    "https://registry.npmmirror.com/-/binary/electron/v30.0.1/electron-v30.0.1-linux-x64.zip",
+    "https://registry.npmmirror.com/-/binary/node/v20.11.1/node-v20.11.1-linux-x64.tar.gz"
+  ] },
+  { "name": "Genshin Impact video", "weight": 5, "urls": [
+    "https://act-webstatic.mihoyo.com/puzzle/hk4e/pz_aq0iVV_f3t/resource/puzzle/2024/12/17/f563edfe3baf5200a146ff07f3ddeb39_1827438484025889157.mp4",
+    "https://www.yuanshen.com/medias/bg.3e78e808.mp4"
+  ] },
+  { "name": "Alipay Open Platform SDK",       "url": "https://gw.alipayobjects.com/os/rmsportal/PpisHyUkzJnZltrPyfuD.zip", "weight": 5 },
+  { "name": "UNPKG (Cloudflare)",             "url": "https://unpkg.com/browse/@swc/wasm-web@1.7.26/wasm_bg.wasm", "weight": 5 },
+  { "name": "Huawei video", "weight": 5, "urls": [
     "https://www-file.huawei.com/-/media/corp2020/media-center/video3/2023-year-end-video-1080-cn-v2.mp4",
     "https://www-file.huawei.com/admin/asset/v1/pro/view/056a1adb27b649f697add219d1443b61.mp4",
     "https://www-file.huawei.com/admin/asset/v1/pro/view/0655fec1505140148c62d74315b37963.mp4",
@@ -38,16 +55,5 @@
     "https://www-file.huawei.com/admin/asset/v1/pro/view/e6c99068cd6e48fc91fac78cfe121dc4.mp4",
     "https://www-file.huawei.com/admin/asset/v1/pro/view/e6ce9bdbdd3e42c7ae447ebae7b427d5.mp4",
     "https://www-file.huawei.com/admin/asset/v1/pro/view/ff8d196988b44fbfb5f2a0c8074f6f88.mp4"
-  ] },
-  { "name": "Genshin Impact video", "weight": 4, "urls": [
-    "https://act-webstatic.mihoyo.com/puzzle/hk4e/pz_aq0iVV_f3t/resource/puzzle/2024/12/17/f563edfe3baf5200a146ff07f3ddeb39_1827438484025889157.mp4",
-    "https://www.yuanshen.com/medias/bg.3e78e808.mp4"
-  ] },
-  { "name": "Yuanmeng Zhi Xing teaser video", "url": "https://ymzx.lv.game.qq.com/dis_kt_051e943d711166e453474838a5ce5254_1702579567/0b53guaaoaaa2yaex4d37rs6onoda42qabya.f0.mp4", "weight": 4 },
-  { "name": "Xiaohongshu Android client",     "url": "https://dc.xiaohongshu.com/file/pkgs/base/xiaohongshu.apk", "weight": 4 },
-  { "name": "Alipay Open Platform SDK",       "url": "https://gw.alipayobjects.com/os/rmsportal/PpisHyUkzJnZltrPyfuD.zip", "weight": 3 },
-  { "name": "Baidu Netdisk Android client",   "url": "https://issuecdn.baidupcs.com/issue/netdisk/apk/BaiduNetdiskSetup_wap_share.apk", "weight": 4 },
-  { "name": "CacheFly 200MB",                 "url": "https://cachefly.cachefly.net/200mb.test", "weight": 5 },
-  { "name": "Cloudflare Speedtest 25MB",      "url": "https://speed.cloudflare.com/__down?bytes=25000000", "weight": 5 },
-  { "name": "UNPKG (Cloudflare)",             "url": "https://unpkg.com/browse/@swc/wasm-web@1.7.26/wasm_bg.wasm", "weight": 3 }
+  ] }
 ]
