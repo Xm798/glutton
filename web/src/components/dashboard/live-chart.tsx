@@ -26,6 +26,7 @@ const ACCENT = "#2f9bff";
 function RateTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
   const p = payload[0];
+  if (!p) return null;
   const t = (p.payload as Point).t;
   return (
     <div className="rounded-md border bg-popover/95 px-3 py-2 text-xs shadow-md backdrop-blur">
