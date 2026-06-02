@@ -86,6 +86,36 @@ func ValidateURL(raw string) error {
 	return nil
 }
 
+// ValidateURLs screens every URL and requires at least one. Each distinct host
+// is DNS-screened once — a URL group often shares a host (e.g. 36 huawei URLs),
+// and ValidateURL does a live DNS lookup per call, so deduping by host avoids N
+// redundant lookups. URLs reusing an already-screened host still get a cheap
+// scheme/parse check.
+func ValidateURLs(urls []string) error {
+	if len(urls) == 0 {
+		return fmt.Errorf("at least one url is required")
+	}
+	screened := make(map[string]bool, len(urls))
+	for _, raw := range urls {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("parse url %q: %w", raw, err)
+		}
+		if s := strings.ToLower(u.Scheme); s != "http" && s != "https" {
+			return fmt.Errorf("scheme must be http or https, got %q", u.Scheme)
+		}
+		host := u.Hostname()
+		if screened[host] {
+			continue
+		}
+		if err := ValidateURL(raw); err != nil {
+			return err
+		}
+		screened[host] = true
+	}
+	return nil
+}
+
 // defaultResolver is overridable in tests so we can simulate CNAMEs into
 // private space without touching real DNS.
 var defaultResolver Resolver = net.DefaultResolver

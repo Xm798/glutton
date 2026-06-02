@@ -13,16 +13,14 @@ import (
 var builtinJSON []byte
 
 type Builtin struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	UA     string `json:"ua,omitempty"`
-	Weight int    `json:"weight"`
+	Name   string   `json:"name"`
+	URLs   []string `json:"urls"`
+	UA     string   `json:"ua,omitempty"`
+	Weight int      `json:"weight"`
 }
 
-// rawBuiltin matches builtin.json on disk; either `url` or `urls` may be
-// set. A group (urls=[...]) is expanded into N individual Builtin entries,
-// each named "<name> #<i>", so they can be tracked, weighted, and cooled
-// down independently while still sharing a recognizable label.
+// rawBuiltin matches builtin.json on disk; either `url` (single) or `urls`
+// (list) may be set, not both.
 type rawBuiltin struct {
 	Name   string   `json:"name"`
 	URL    string   `json:"url,omitempty"`
@@ -48,17 +46,9 @@ func LoadBuiltins() ([]Builtin, error) {
 		case hasURL && hasURLs:
 			return nil, fmt.Errorf("builtin[%d] %q: set either url or urls, not both", i, r.Name)
 		case hasURL:
-			out = append(out, Builtin{Name: r.Name, URL: r.URL, UA: r.UA, Weight: w})
+			out = append(out, Builtin{Name: r.Name, URLs: []string{r.URL}, UA: r.UA, Weight: w})
 		case hasURLs:
-			width := numWidth(len(r.URLs))
-			for j, u := range r.URLs {
-				out = append(out, Builtin{
-					Name:   fmt.Sprintf("%s #%0*d", r.Name, width, j+1),
-					URL:    u,
-					UA:     r.UA,
-					Weight: w,
-				})
-			}
+			out = append(out, Builtin{Name: r.Name, URLs: r.URLs, UA: r.UA, Weight: w})
 		default:
 			return nil, fmt.Errorf("builtin[%d] %q: missing url/urls", i, r.Name)
 		}
@@ -66,19 +56,10 @@ func LoadBuiltins() ([]Builtin, error) {
 	return out, nil
 }
 
-func numWidth(n int) int {
-	w := 1
-	for n >= 10 {
-		n /= 10
-		w++
-	}
-	return w
-}
-
 type Candidate struct {
 	ID            int64
 	Name          string
-	URL           string
+	URLs          []string
 	UA            string
 	Weight        int
 	CooldownUntil time.Time
@@ -104,9 +85,10 @@ func (p *Pool) Replace(cs []Candidate) {
 	p.cand = append([]Candidate(nil), cs...)
 }
 
-// Pick returns a weighted-random eligible candidate, avoiding lastID when alternatives exist.
-// lastID = -1 means "no previous pick". Returns ok=false if no eligible candidate.
-func (p *Pool) Pick(now time.Time, lastID int64) (Candidate, bool) {
+// Pick returns a weighted-random eligible candidate and one random URL from it,
+// avoiding lastID when alternatives exist. lastID = -1 means "no previous pick".
+// Returns ok=false if no eligible candidate.
+func (p *Pool) Pick(now time.Time, lastID int64) (Candidate, string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -118,13 +100,15 @@ func (p *Pool) Pick(now time.Time, lastID int64) (Candidate, bool) {
 		if !c.CooldownUntil.IsZero() && c.CooldownUntil.After(now) {
 			continue
 		}
+		if len(c.URLs) == 0 {
+			continue
+		}
 		eligible = append(eligible, c)
 	}
 	if len(eligible) == 0 {
-		return Candidate{}, false
+		return Candidate{}, "", false
 	}
 	if len(eligible) > 1 {
-		// Drop lastID if there's a real alternative.
 		filtered := eligible[:0:0]
 		for _, c := range eligible {
 			if c.ID != lastID {
@@ -135,7 +119,9 @@ func (p *Pool) Pick(now time.Time, lastID int64) (Candidate, bool) {
 			eligible = filtered
 		}
 	}
-	return weightedPick(eligible, p.rng), true
+	chosen := weightedPick(eligible, p.rng)
+	url := chosen.URLs[p.rng.Intn(len(chosen.URLs))]
+	return chosen, url, true
 }
 
 func weightedPick(cs []Candidate, rng *rand.Rand) Candidate {

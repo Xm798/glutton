@@ -11,20 +11,20 @@ type ConfigKV struct {
 func (ConfigKV) TableName() string { return "config_kv" }
 
 type Source struct {
-	ID            uint   `gorm:"primaryKey;autoIncrement;column:id"`
-	Name          string `gorm:"not null;column:name"`
-	URL           string `gorm:"not null;uniqueIndex;column:url"`
-	UA            string `gorm:"not null;default:'';column:ua"`
-	Enabled       bool   `gorm:"not null;default:true;column:enabled"`
-	Weight        int    `gorm:"not null;default:1;column:weight"`
-	SuccessCount  int64  `gorm:"not null;default:0;column:success_count"`
-	FailCount     int64  `gorm:"not null;default:0;column:fail_count"`
-	AvgSpeedBps   int64  `gorm:"not null;default:0;column:avg_speed_bps"`
-	LastError     string `gorm:"not null;default:'';column:last_error"`
-	LastSuccessAt int64  `gorm:"not null;default:0;column:last_success_at"`
-	CooldownUntil int64  `gorm:"not null;default:0;column:cooldown_until"`
-	CreatedAt     int64  `gorm:"not null;column:created_at;autoCreateTime:false"`
-	UpdatedAt     int64  `gorm:"not null;column:updated_at;autoUpdateTime:false"`
+	ID            uint     `gorm:"primaryKey;autoIncrement;column:id"`
+	Name          string   `gorm:"not null;column:name"`
+	URLs          []string `gorm:"serializer:json;column:urls"`
+	UA            string   `gorm:"not null;default:'';column:ua"`
+	Enabled       bool     `gorm:"not null;default:true;column:enabled"`
+	Weight        int      `gorm:"not null;default:1;column:weight"`
+	SuccessCount  int64    `gorm:"not null;default:0;column:success_count"`
+	FailCount     int64    `gorm:"not null;default:0;column:fail_count"`
+	AvgSpeedBps   int64    `gorm:"not null;default:0;column:avg_speed_bps"`
+	LastError     string   `gorm:"not null;default:'';column:last_error"`
+	LastSuccessAt int64    `gorm:"not null;default:0;column:last_success_at"`
+	CooldownUntil int64    `gorm:"not null;default:0;column:cooldown_until"`
+	CreatedAt     int64    `gorm:"not null;column:created_at;autoCreateTime:false"`
+	UpdatedAt     int64    `gorm:"not null;column:updated_at;autoUpdateTime:false"`
 }
 
 func (Source) TableName() string { return "sources" }

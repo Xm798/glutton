@@ -98,13 +98,13 @@ func newRig(t *testing.T, originURL string, windows []string) *rig {
 	t.Cleanup(func() { _ = store.Close(db) })
 
 	require.NoError(t, store.CreateSource(db, &store.Source{
-		Name: "primary", URL: originURL, Enabled: true, Weight: 1,
+		Name: "primary", URLs: []string{originURL}, Enabled: true, Weight: 1,
 	}))
 	rows, _ := store.ListEnabledSources(db)
 	cands := []sources.Candidate{}
 	for _, r := range rows {
 		cands = append(cands, sources.Candidate{
-			ID: int64(r.ID), Name: r.Name, URL: r.URL,
+			ID: int64(r.ID), Name: r.Name, URLs: r.URLs,
 			Weight:        r.Weight,
 			CooldownUntil: time.Unix(r.CooldownUntil, 0),
 		})
@@ -140,7 +140,7 @@ func newRig(t *testing.T, originURL string, windows []string) *rig {
 		cs := make([]sources.Candidate, 0, len(rows))
 		for _, r := range rows {
 			cs = append(cs, sources.Candidate{
-				ID: int64(r.ID), Name: r.Name, URL: r.URL,
+				ID: int64(r.ID), Name: r.Name, URLs: r.URLs,
 				Weight:        r.Weight,
 				CooldownUntil: time.Unix(r.CooldownUntil, 0),
 			})
@@ -156,12 +156,12 @@ func newRig(t *testing.T, originURL string, windows []string) *rig {
 			if state.Get() != scheduler.Running {
 				return consumer.Job{}, false
 			}
-			c, ok := pool.Pick(time.Now(), lastID.Load())
+			c, url, ok := pool.Pick(time.Now(), lastID.Load())
 			if !ok {
 				return consumer.Job{}, false
 			}
 			lastID.Store(c.ID)
-			return consumer.Job{SourceID: uint(c.ID), URL: c.URL}, true
+			return consumer.Job{SourceID: uint(c.ID), URL: url}, true
 		},
 		OnProgress: func(n int64) {
 			today.Add(n)
@@ -370,7 +370,7 @@ func TestB3SourceCooldownAndHotInsert(t *testing.T) {
 		3*time.Second, 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
-		_, ok := rig.pool.Pick(time.Now(), -1)
+		_, _, ok := rig.pool.Pick(time.Now(), -1)
 		return !ok
 	}, 5*time.Second, 50*time.Millisecond, "failing source should eventually be cooled down so Pick returns false")
 
@@ -378,12 +378,12 @@ func TestB3SourceCooldownAndHotInsert(t *testing.T) {
 	// insert the row directly into the store and trigger the reloader to
 	// exercise the same hot-reload path the API handler uses.
 	require.NoError(t, store.CreateSource(rig.db, &store.Source{
-		Name: "healthy", URL: healthy.URL, Enabled: true, Weight: 1,
+		Name: "healthy", URLs: []string{healthy.URL}, Enabled: true, Weight: 1,
 	}))
 	rig.reloadFn()
 
 	require.Eventually(t, func() bool {
-		c, ok := rig.pool.Pick(time.Now(), -1)
-		return ok && c.URL == healthy.URL
+		_, url, ok := rig.pool.Pick(time.Now(), -1)
+		return ok && url == healthy.URL
 	}, 2*time.Second, 50*time.Millisecond, "newly added healthy source must be pickable without restart")
 }
