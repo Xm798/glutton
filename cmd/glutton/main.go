@@ -150,7 +150,7 @@ func run() error {
 		sourcePool.Replace(cands)
 	}
 
-	var todayBytes, monthBytes atomic.Int64
+	var todayBytes, monthBytes, minuteBytes atomic.Int64
 	{
 		now := time.Now()
 		if d, err := store.SumTrafficSince(db, store.DayStart(now, loc)); err == nil {
@@ -190,6 +190,7 @@ func run() error {
 		OnProgress: func(n int64) {
 			todayBytes.Add(n)
 			monthBytes.Add(n)
+			minuteBytes.Add(n)
 		},
 		OnResult: func(j consumer.Job, n int64, ttfb, elapsed time.Duration, err error) {
 			// A download cancelled because the service left Running (pause / quota
@@ -288,7 +289,7 @@ func run() error {
 	<-notifier.Ready()
 	consumerPool.Start(ctx)
 	go runRetentionAndResets(ctx, db, loc, &todayBytes, &monthBytes, state, bus)
-	go runRateSampler(ctx, &todayBytes, &monthBytes, live)
+	go runRateSampler(ctx, db, &todayBytes, &monthBytes, &minuteBytes, live)
 	bus.Publish(events.Event{Type: events.TypeServiceStarted, Level: "info", Message: "service up"})
 
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv}
@@ -728,13 +729,14 @@ func (b *burstImpl) Burst(minutes int, bytes int64) {
 	}()
 }
 
-func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.LiveCounters) {
+func runRateSampler(ctx context.Context, db *gorm.DB, today, month, minuteBytes *atomic.Int64, live *api.LiveCounters) {
 	const window = 5
 	type sample struct {
 		ts    time.Time
 		bytes int64
 	}
 	ring := make([]sample, 0, window+1)
+	var curMinute int64
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
@@ -755,6 +757,16 @@ func runRateSampler(ctx context.Context, today, month *atomic.Int64, live *api.L
 				ring = ring[:len(ring)-drop]
 			}
 			ring = append(ring, sample{ts: now, bytes: cur})
+			mb := store.MinuteBucket(now)
+			if curMinute == 0 {
+				curMinute = mb
+			}
+			if mb != curMinute {
+				if b := minuteBytes.Swap(0); b > 0 && db != nil {
+					_ = store.AddMinuteSample(db, curMinute, b)
+				}
+				curMinute = mb
+			}
 			var rate int64
 			if len(ring) >= 2 {
 				oldest := ring[0]
@@ -798,6 +810,7 @@ func runRetentionAndResets(
 				lastDay = d
 				_ = store.PurgeTrafficBefore(db, store.HourBucket(now.Add(-30*24*time.Hour)))
 				_ = store.PurgeEventsBefore(db, now.Add(-90*24*time.Hour).Unix())
+				_ = store.PurgeMinuteSamplesBefore(db, store.MinuteBucket(now.Add(-30*24*time.Hour)))
 			}
 			if m != lastMonth {
 				month.Store(0)
