@@ -4,7 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api, type EventHistoryQuery } from "./api";
-import type { RuntimeConfig, SourceInput } from "@/types/api";
+import type { RuntimeConfig, SourceInput, TrafficRange } from "@/types/api";
 
 export const qk = {
   version: ["version"] as const,
@@ -13,6 +13,7 @@ export const qk = {
   liveStats: ["stats", "live"] as const,
   trafficSince: (since: number) => ["stats", "history", since] as const,
   trafficBySource: (since: number) => ["stats", "sources", since] as const,
+  trafficSeries: (range: TrafficRange) => ["stats", "series", range] as const,
   eventHistory: (q: EventHistoryQuery) => ["events", "history", q] as const,
   controlStatus: ["control", "status"] as const,
   eventTypes: ["events", "types"] as const,
@@ -45,6 +46,13 @@ export const useTrafficBySource = (since: number) =>
     queryKey: qk.trafficBySource(since),
     queryFn: () => api.trafficBySource(since),
     refetchInterval: 30_000,
+  });
+
+export const useTrafficSeries = (range: TrafficRange) =>
+  useQuery({
+    queryKey: qk.trafficSeries(range),
+    queryFn: () => api.trafficSeries(range),
+    refetchInterval: range === "1h" ? 15_000 : 60_000,
   });
 
 export const useEventHistory = (q: EventHistoryQuery = { limit: 100 }) =>

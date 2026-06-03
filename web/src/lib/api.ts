@@ -8,6 +8,8 @@ import type {
   SourceInput,
   SourceTrafficSummary,
   TrafficBucket,
+  TrafficRange,
+  TrafficSeries,
   VersionInfo,
 } from "@/types/api";
 
@@ -56,6 +58,8 @@ export const api = {
     request<TrafficBucket[]>(`/api/stats/history?since=${since}`),
   trafficBySource: (since: number) =>
     request<SourceTrafficSummary[]>(`/api/stats/sources?since=${since}`),
+  trafficSeries: (range: TrafficRange) =>
+    request<TrafficSeries>(`/api/stats/series?range=${range}`),
 
   getEventHistory: (q: EventHistoryQuery = {}) => {
     const params = new URLSearchParams();
