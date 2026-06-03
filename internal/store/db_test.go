@@ -174,6 +174,33 @@ func TestOpenAutoMigratesMinuteSamples(t *testing.T) {
 	require.True(t, db.Migrator().HasTable("minute_samples"))
 }
 
+func TestMinuteSampleUpsertQueryPurge(t *testing.T) {
+	db := openTestDB(t)
+
+	require.NoError(t, store.AddMinuteSample(db, 1_000_060, 100))
+	require.NoError(t, store.AddMinuteSample(db, 1_000_060, 250)) // same bucket accumulates
+	require.NoError(t, store.AddMinuteSample(db, 1_000_120, 70))
+
+	rows, err := store.MinuteSamplesSince(db, 1_000_060)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, int64(1_000_060), rows[0].MinuteBucket)
+	require.Equal(t, int64(350), rows[0].Bytes)
+	require.Equal(t, int64(70), rows[1].Bytes)
+
+	// since filter excludes older buckets
+	rows, err = store.MinuteSamplesSince(db, 1_000_120)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	// purge removes buckets strictly before the cutoff
+	require.NoError(t, store.PurgeMinuteSamplesBefore(db, 1_000_120))
+	rows, err = store.MinuteSamplesSince(db, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, int64(1_000_120), rows[0].MinuteBucket)
+}
+
 func TestMaxEventIDOnEmptyAndPopulated(t *testing.T) {
 	db := openTestDB(t)
 
