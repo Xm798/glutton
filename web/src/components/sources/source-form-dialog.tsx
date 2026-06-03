@@ -90,6 +90,7 @@ export function SourceFormDialog({ open, onOpenChange, editing }: Props) {
               <Textarea
                 id="urls"
                 rows={4}
+                className="max-h-60 overflow-y-auto"
                 placeholder={t("sources.urlsPlaceholder")}
                 value={urlsText}
                 onChange={(e) => setUrlsText(e.target.value)}
