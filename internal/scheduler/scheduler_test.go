@@ -153,9 +153,35 @@ func TestSetQuotasHotSwap(t *testing.T) {
 	s.Tick()
 	require.Equal(t, scheduler.QuotaReached, st.Get())
 
-	// Raise the cap → ResetQuota gets us back to Idle, next tick goes Running.
+	// Raise the cap → next tick auto-resets QuotaReached and goes Running.
 	s.SetQuotas(0, 0)
-	require.NoError(t, st.ResetQuota())
+	s.Tick()
+	require.Equal(t, scheduler.Running, st.Get())
+}
+
+// Raising the quota above current usage must clear QuotaReached on the next
+// tick on its own, without a manual ResetQuota. Regression: changing the daily
+// quota left the scheduler stuck in QuotaReached.
+func TestRaisingQuotaAutoResets(t *testing.T) {
+	loc, _ := time.LoadLocation("UTC")
+	w, err := scheduler.ParseWindows([]string{"* * * * *"}, loc)
+	require.NoError(t, err)
+
+	clock := newMockClock(time.Date(2026, 4, 30, 3, 0, 0, 0, loc))
+	st := scheduler.NewState()
+	used := int64(50 * 1024 * 1024 * 1024) // 50 GB
+	s := scheduler.New(scheduler.Config{
+		State: st, Windows: w,
+		DailyQuotaBytes:  10 * 1024 * 1024 * 1024, // below usage → quota reached
+		Now:              clock.Now,
+		BytesUsedDaily:   func() int64 { return used },
+		BytesUsedMonthly: func() int64 { return 0 },
+	})
+	s.Tick()
+	require.Equal(t, scheduler.QuotaReached, st.Get())
+
+	// Raise the daily cap above usage; the next tick alone should recover.
+	s.SetQuotas(100*1024*1024*1024, 0)
 	s.Tick()
 	require.Equal(t, scheduler.Running, st.Get())
 }

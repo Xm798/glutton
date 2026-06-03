@@ -123,6 +123,13 @@ func (s *Scheduler) Tick() {
 		return
 	}
 
+	// No cap is exceeded. If we were parked in QuotaReached (cap raised or
+	// removed via config, or usage rolled over), release it so the window
+	// check below can resume normal scheduling.
+	if s.cfg.State.Get() == QuotaReached {
+		_ = s.cfg.State.ResetQuota()
+	}
+
 	w := s.windows.Load()
 	if w.Contains(now) {
 		_ = s.cfg.State.Activate()
