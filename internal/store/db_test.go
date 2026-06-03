@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/stretchr/testify/require"
@@ -161,6 +162,16 @@ func TestListEventsFilteredPushesTypePredicateBelowLimit(t *testing.T) {
 	all, err := store.ListEventsFiltered(db, 0, 100, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 33)
+}
+
+func TestMinuteBucketAlignment(t *testing.T) {
+	ts := time.Date(2026, 6, 3, 13, 4, 39, 0, time.UTC)
+	require.Equal(t, time.Date(2026, 6, 3, 13, 4, 0, 0, time.UTC).Unix(), store.MinuteBucket(ts))
+}
+
+func TestOpenAutoMigratesMinuteSamples(t *testing.T) {
+	db := openTestDB(t)
+	require.True(t, db.Migrator().HasTable("minute_samples"))
 }
 
 func TestMaxEventIDOnEmptyAndPopulated(t *testing.T) {
