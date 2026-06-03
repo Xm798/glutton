@@ -16,8 +16,10 @@ type PoolConfig struct {
 	Limiter  *rate.Limiter
 	Provider func(ctx context.Context) (Job, bool) // false = no job available; worker idles briefly
 	// OnProgress fires per chunk as bytes arrive. OnResult fires once at job end.
+	// ttfb is time-to-first-byte (for latency metrics); elapsed is the full
+	// wall-clock transfer time (for throughput).
 	OnProgress func(bytes int64)
-	OnResult   func(j Job, bytes int64, rtt time.Duration, err error)
+	OnResult   func(j Job, bytes int64, ttfb, elapsed time.Duration, err error)
 }
 
 // Pool runs N download workers under a single limiter. The active worker
@@ -185,11 +187,13 @@ func (p *Pool) runWorker(ctx context.Context) {
 		// pause), closing the gap between Provider and the download start.
 		jobCtx, jobCancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(p.currentRun(), jobCancel)
-		n, rtt, err := p.d.Run(jobCtx, job, p.cfg.OnProgress)
+		start := time.Now()
+		n, ttfb, err := p.d.Run(jobCtx, job, p.cfg.OnProgress)
+		elapsed := time.Since(start)
 		stop()
 		jobCancel()
 		if p.cfg.OnResult != nil {
-			p.cfg.OnResult(job, n, rtt, err)
+			p.cfg.OnResult(job, n, ttfb, elapsed, err)
 		}
 	}
 }

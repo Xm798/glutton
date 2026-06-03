@@ -167,13 +167,13 @@ func newRig(t *testing.T, originURL string, windows []string) *rig {
 			today.Add(n)
 			month.Add(n)
 		},
-		OnResult: func(j consumer.Job, n int64, rtt time.Duration, err error) {
+		OnResult: func(j consumer.Job, n int64, _, elapsed time.Duration, err error) {
 			if err == nil {
 				consecMu.Lock()
 				delete(consec, j.SourceID)
 				consecMu.Unlock()
-				if n > 0 && rtt > 0 {
-					_ = store.RecordSourceSuccess(db, j.SourceID, int64(float64(n)/rtt.Seconds()), time.Now().Unix())
+				if n > 0 && elapsed > 0 {
+					_ = store.RecordSourceSuccess(db, j.SourceID, int64(float64(n)/elapsed.Seconds()), time.Now().Unix())
 				}
 				reload()
 				return

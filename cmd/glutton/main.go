@@ -191,7 +191,7 @@ func run() error {
 			todayBytes.Add(n)
 			monthBytes.Add(n)
 		},
-		OnResult: func(j consumer.Job, n int64, rtt time.Duration, err error) {
+		OnResult: func(j consumer.Job, n int64, ttfb, elapsed time.Duration, err error) {
 			// A download cancelled because the service left Running (pause / quota
 			// / window close / shutdown) is neither a source success nor failure.
 			// Persist the bytes actually drained — they count toward quota and must
@@ -201,14 +201,14 @@ func run() error {
 			if n > 0 {
 				_ = store.AddTraffic(db, store.HourBucket(time.Now().In(loc)), j.SourceID, n)
 				api.BytesDownloadedTotal.WithLabelValues(fmt.Sprint(j.SourceID)).Add(float64(n))
-				if rtt > 0 && !aborted {
-					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(rtt.Seconds())
+				if ttfb > 0 && !aborted {
+					api.SourceRTTSeconds.WithLabelValues(fmt.Sprint(j.SourceID)).Observe(ttfb.Seconds())
 				}
 			}
 			if aborted {
 				return
 			}
-			handleSourceResult(db, j.SourceID, n, rtt, err, &consecFailMu, consecFails, bus, reloadSourcesFromDB)
+			handleSourceResult(db, j.SourceID, n, elapsed, err, &consecFailMu, consecFails, bus, reloadSourcesFromDB)
 			if err != nil {
 				bus.Publish(events.Event{
 					Type: events.TypeSourceError, Level: "warn",
@@ -315,7 +315,7 @@ type reloaderFunc func()
 func (r reloaderFunc) Reload() { r() }
 
 func handleSourceResult(
-	db *gorm.DB, sourceID uint, bytes int64, rtt time.Duration, err error,
+	db *gorm.DB, sourceID uint, bytes int64, elapsed time.Duration, err error,
 	mu *sync.Mutex, consec map[uint]int,
 	bus *events.Bus, reload func(),
 ) {
@@ -324,8 +324,8 @@ func handleSourceResult(
 	}
 	if err == nil {
 		var avg int64
-		if bytes > 0 && rtt > 0 {
-			avg = int64(float64(bytes) / rtt.Seconds())
+		if bytes > 0 && elapsed > 0 {
+			avg = int64(float64(bytes) / elapsed.Seconds())
 		}
 		mu.Lock()
 		delete(consec, sourceID)

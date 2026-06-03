@@ -63,7 +63,7 @@ func TestEndToEndRateCap(t *testing.T) {
 			}
 			return consumer.Job{SourceID: uint(c.ID), URL: url}, true
 		},
-		OnResult: func(_ consumer.Job, n int64, _ time.Duration, _ error) { bytesDrained.Add(n) },
+		OnResult: func(_ consumer.Job, n int64, _, _ time.Duration, _ error) { bytesDrained.Add(n) },
 	})
 
 	// Run for 4s.

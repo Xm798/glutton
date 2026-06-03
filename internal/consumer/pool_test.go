@@ -25,7 +25,7 @@ func TestWorkerPoolRunsAndStops(t *testing.T) {
 		jobs.Add(1)
 		return consumer.Job{URL: srv.URL, UserAgent: "ua"}, true
 	}
-	onResult := func(_ consumer.Job, n int64, _ time.Duration, _ error) {
+	onResult := func(_ consumer.Job, n int64, _, _ time.Duration, _ error) {
 		bytes.Add(n)
 	}
 
@@ -74,7 +74,7 @@ func TestWorkerPoolAbortsInFlightOnPause(t *testing.T) {
 			return consumer.Job{URL: srv.URL}, true
 		},
 		OnProgress: func(n int64) { bytes.Add(n) },
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, err error) {
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, err error) {
 			if err != nil {
 				lastErr.Store(err)
 			}
@@ -117,7 +117,7 @@ func TestWorkerPoolResumeAfterAbort(t *testing.T) {
 		Limiter:    rate.NewLimiter(rate.Limit(4<<20), 1<<20),
 		Provider:   func(_ context.Context) (consumer.Job, bool) { return consumer.Job{URL: srv.URL}, true },
 		OnProgress: func(n int64) { bytes.Add(n) },
-		OnResult:   func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult:   func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -143,7 +143,7 @@ func TestWorkerPoolStopsImmediatelyOnCancel(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(10<<20), 1<<20),
 		Provider: provider,
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -171,7 +171,7 @@ func TestWorkerPoolResizeUpAndDown(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(20<<20), 1<<20),
 		Provider: provider,
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -203,7 +203,7 @@ func TestM1ResizeRaceUnderConcurrency(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(50<<20), 1<<20),
 		Provider: func(_ context.Context) (consumer.Job, bool) { return consumer.Job{URL: srv.URL}, true },
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -246,7 +246,7 @@ func TestM1ResizeBeforeStartTakesEffect(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(20<<20), 1<<20),
 		Provider: func(_ context.Context) (consumer.Job, bool) { return consumer.Job{URL: srv.URL}, true },
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 	pool.Resize(4)
 	pool.Resize(6) // last one wins
@@ -271,7 +271,7 @@ func TestM1DoubleStartIsNoop(t *testing.T) {
 		Client:   http.DefaultClient,
 		Limiter:  rate.NewLimiter(rate.Limit(20<<20), 1<<20),
 		Provider: func(_ context.Context) (consumer.Job, bool) { return consumer.Job{URL: srv.URL}, true },
-		OnResult: func(_ consumer.Job, _ int64, _ time.Duration, _ error) {},
+		OnResult: func(_ consumer.Job, _ int64, _, _ time.Duration, _ error) {},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
