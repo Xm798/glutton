@@ -44,7 +44,7 @@
     "currentRate": "Current rate",
     "today": "Today",
     "thisMonth": "This month",
-    "rateChartTitle": "Downstream rate (last hour)",
+    "rateChartTitle": "Downstream traffic",
     "metric": { "rate": "Throughput", "bytes": "Volume" },
     "topSources": "Top sources",
     "source": "Source",

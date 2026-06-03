@@ -44,7 +44,7 @@
     "currentRate": "当前速率",
     "today": "今日",
     "thisMonth": "本月",
-    "rateChartTitle": "下行速率（最近一小时）",
+    "rateChartTitle": "下行流量",
     "metric": { "rate": "速率", "bytes": "流量" },
     "topSources": "源排行",
     "source": "下载源",

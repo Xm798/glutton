@@ -102,6 +102,7 @@ export function LiveChart() {
               <button
                 key={m}
                 type="button"
+                aria-pressed={metric === m}
                 onClick={() => setMetric(m)}
                 className={segmentClass(metric === m)}
               >
@@ -119,6 +120,7 @@ export function LiveChart() {
               <button
                 key={r}
                 type="button"
+                aria-pressed={range === r}
                 onClick={() => setRange(r)}
                 className={cn(segmentClass(range === r), "tabular-nums")}
               >
