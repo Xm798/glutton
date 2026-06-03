@@ -21,7 +21,6 @@ i18n
     },
     fallbackLng: "en",
     supportedLngs: SUPPORTED_LANGUAGES.map((l) => l.code),
-    nonExplicitSupportedLngs: true, // maps "zh" → "zh-CN"
     interpolation: { escapeValue: false },
     detection: {
       order: ["localStorage", "navigator"],
