@@ -32,8 +32,8 @@ func TestStatsLive(t *testing.T) {
 func TestStatsSeriesMinuteRange(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
-	require.NoError(t, store.AddMinuteSample(db, store.MinuteBucket(now.Add(-30*time.Minute)), 1000))
-	require.NoError(t, store.AddMinuteSample(db, store.MinuteBucket(now.Add(-2*time.Minute)), 2000))
+	require.NoError(t, store.SetMinuteSample(db, store.MinuteBucket(now.Add(-30*time.Minute)), 1000))
+	require.NoError(t, store.SetMinuteSample(db, store.MinuteBucket(now.Add(-2*time.Minute)), 2000))
 
 	srv := api.New(api.Deps{Store: db})
 	req := httptest.NewRequest(http.MethodGet, "/api/stats/series?range=1h", nil)

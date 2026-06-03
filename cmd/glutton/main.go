@@ -761,10 +761,15 @@ func runRateSampler(ctx context.Context, db *gorm.DB, today, month, minuteBytes 
 				// curMinute == 0 only on the first tick — nothing to flush yet.
 				if curMinute != 0 {
 					if b := minuteBytes.Swap(0); b > 0 && db != nil {
-						_ = store.AddMinuteSample(db, curMinute, b)
+						_ = store.SetMinuteSample(db, curMinute, b)
 					}
 				}
 				curMinute = mb
+			}
+			// Refresh the in-progress minute each tick so live traffic shows on
+			// the 1h/1d chart without waiting for the minute to roll over.
+			if cur := minuteBytes.Load(); cur > 0 && db != nil {
+				_ = store.SetMinuteSample(db, curMinute, cur)
 			}
 			var rate int64
 			if len(ring) >= 2 {

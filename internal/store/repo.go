@@ -130,13 +130,15 @@ func PurgeTrafficBefore(db *gorm.DB, hourBucket int64) error {
 	return db.Where("hour_bucket < ?", hourBucket).Delete(&TrafficBucket{}).Error
 }
 
-func AddMinuteSample(db *gorm.DB, minuteBucket, bytes int64) error {
+// SetMinuteSample writes the total bytes for a minute bucket, replacing any
+// prior value. The sampler refreshes the in-progress minute on every tick so
+// the high-resolution chart reflects live traffic, not just completed minutes;
+// in-minute accumulation is held in memory, so the stored value is absolute.
+func SetMinuteSample(db *gorm.DB, minuteBucket, bytes int64) error {
 	row := MinuteSample{MinuteBucket: minuteBucket, Bytes: bytes}
 	return db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "minute_bucket"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"bytes": gorm.Expr("minute_samples.bytes + ?", bytes),
-		}),
+		Columns:   []clause.Column{{Name: "minute_bucket"}},
+		DoUpdates: clause.Assignments(map[string]any{"bytes": bytes}),
 	}).Create(&row).Error
 }
 
