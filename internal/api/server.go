@@ -118,6 +118,7 @@ func New(deps Deps) *Server {
 	stats := &statsHandlers{store: deps.Store, counter: deps.Live, loc: deps.Loc}
 	g.GET("/stats/live", stats.live)
 	g.GET("/stats/history", stats.history)
+	g.GET("/stats/series", stats.series)
 	g.GET("/stats/sources", stats.bySource)
 
 	eh := &eventsHandlers{store: deps.Store}
