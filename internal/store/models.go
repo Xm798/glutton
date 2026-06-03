@@ -47,6 +47,15 @@ type TrafficBucket struct {
 
 func (TrafficBucket) TableName() string { return "traffic_buckets" }
 
+// MinuteSample stores total bytes (across all sources) consumed in one minute.
+// Backs the high-resolution 1h/1d chart ranges; retained 30 days.
+type MinuteSample struct {
+	MinuteBucket int64 `gorm:"primaryKey;column:minute_bucket"`
+	Bytes        int64 `gorm:"not null;column:bytes"`
+}
+
+func (MinuteSample) TableName() string { return "minute_samples" }
+
 // Event is the persisted form of events.Event. EventID mirrors the in-process
 // monotonic id assigned by the bus so SSE frames and history rows share one
 // key space; ID remains the autoincrement DB pk for ordering by insert.
@@ -68,5 +77,5 @@ type SourceTrafficSummary struct {
 }
 
 func AllModels() []any {
-	return []any{&ConfigKV{}, &Source{}, &TrafficBucket{}, &Event{}}
+	return []any{&ConfigKV{}, &Source{}, &TrafficBucket{}, &MinuteSample{}, &Event{}}
 }

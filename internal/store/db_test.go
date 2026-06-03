@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cyrus/glutton/internal/store"
 	"github.com/stretchr/testify/require"
@@ -161,6 +162,43 @@ func TestListEventsFilteredPushesTypePredicateBelowLimit(t *testing.T) {
 	all, err := store.ListEventsFiltered(db, 0, 100, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 33)
+}
+
+func TestMinuteBucketAlignment(t *testing.T) {
+	ts := time.Date(2026, 6, 3, 13, 4, 39, 0, time.UTC)
+	require.Equal(t, time.Date(2026, 6, 3, 13, 4, 0, 0, time.UTC).Unix(), store.MinuteBucket(ts))
+}
+
+func TestOpenAutoMigratesMinuteSamples(t *testing.T) {
+	db := openTestDB(t)
+	require.True(t, db.Migrator().HasTable("minute_samples"))
+}
+
+func TestMinuteSampleUpsertQueryPurge(t *testing.T) {
+	db := openTestDB(t)
+
+	require.NoError(t, store.AddMinuteSample(db, 1_000_060, 100))
+	require.NoError(t, store.AddMinuteSample(db, 1_000_060, 250)) // same bucket accumulates
+	require.NoError(t, store.AddMinuteSample(db, 1_000_120, 70))
+
+	rows, err := store.MinuteSamplesSince(db, 1_000_060)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, int64(1_000_060), rows[0].MinuteBucket)
+	require.Equal(t, int64(350), rows[0].Bytes)
+	require.Equal(t, int64(70), rows[1].Bytes)
+
+	// since filter excludes older buckets
+	rows, err = store.MinuteSamplesSince(db, 1_000_120)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	// purge removes buckets strictly before the cutoff
+	require.NoError(t, store.PurgeMinuteSamplesBefore(db, 1_000_120))
+	rows, err = store.MinuteSamplesSince(db, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, int64(1_000_120), rows[0].MinuteBucket)
 }
 
 func TestMaxEventIDOnEmptyAndPopulated(t *testing.T) {

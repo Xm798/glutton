@@ -130,6 +130,26 @@ func PurgeTrafficBefore(db *gorm.DB, hourBucket int64) error {
 	return db.Where("hour_bucket < ?", hourBucket).Delete(&TrafficBucket{}).Error
 }
 
+func AddMinuteSample(db *gorm.DB, minuteBucket, bytes int64) error {
+	row := MinuteSample{MinuteBucket: minuteBucket, Bytes: bytes}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "minute_bucket"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"bytes": gorm.Expr("minute_samples.bytes + ?", bytes),
+		}),
+	}).Create(&row).Error
+}
+
+func MinuteSamplesSince(db *gorm.DB, since int64) ([]MinuteSample, error) {
+	var rows []MinuteSample
+	err := db.Where("minute_bucket >= ?", since).Order("minute_bucket").Find(&rows).Error
+	return rows, err
+}
+
+func PurgeMinuteSamplesBefore(db *gorm.DB, minuteBucket int64) error {
+	return db.Where("minute_bucket < ?", minuteBucket).Delete(&MinuteSample{}).Error
+}
+
 func InsertEvent(db *gorm.DB, e *Event) error {
 	return db.Create(e).Error
 }

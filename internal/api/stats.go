@@ -56,6 +56,66 @@ func (h *statsHandlers) history(c echo.Context) error {
 	return c.JSON(http.StatusOK, rows)
 }
 
+type seriesPoint struct {
+	T     int64 `json:"t"`
+	Bytes int64 `json:"bytes"`
+}
+
+// series serves GET /api/stats/series?range=1h|1d|1w|1m as a dense, gap-filled,
+// server-downsampled time series. 1h/1d read minute_samples; 1w/1m read the
+// hourly traffic_buckets (summed across sources). Unknown range defaults to 1d.
+func (h *statsHandlers) series(c echo.Context) error {
+	if h.store == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "store not configured")
+	}
+
+	var (
+		dur     time.Duration
+		step    int64 // output bucket size, seconds
+		useHour bool
+	)
+	switch c.QueryParam("range") {
+	case "1h":
+		dur, step, useHour = time.Hour, 60, false
+	case "1w":
+		dur, step, useHour = 7*24*time.Hour, 3600, true
+	case "1m":
+		dur, step, useHour = 30*24*time.Hour, 4*3600, true
+	default: // "1d" and anything unrecognized
+		dur, step, useHour = 24*time.Hour, 600, false
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-dur).Unix() / step * step // align down to step boundary
+	end := now.Unix()
+
+	sums := make(map[int64]int64)
+	add := func(bucket, bytes int64) { sums[bucket/step*step] += bytes }
+	if useHour {
+		rows, err := store.TrafficSinceBucket(h.store, cutoff)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			add(r.HourBucket, r.Bytes)
+		}
+	} else {
+		rows, err := store.MinuteSamplesSince(h.store, cutoff)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			add(r.MinuteBucket, r.Bytes)
+		}
+	}
+
+	points := make([]seriesPoint, 0, (end-cutoff)/step+1)
+	for ts := cutoff; ts <= end; ts += step {
+		points = append(points, seriesPoint{T: ts, Bytes: sums[ts]})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"step": step, "points": points})
+}
+
 func (h *statsHandlers) bySource(c echo.Context) error {
 	if h.store == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "store not configured")

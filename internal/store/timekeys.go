@@ -8,6 +8,12 @@ func HourBucket(t time.Time) int64 {
 	return t.Truncate(time.Hour).Unix()
 }
 
+// MinuteBucket is the key used in minute_samples — Unix seconds at the top of
+// the minute containing t. Minute boundaries are timezone-independent.
+func MinuteBucket(t time.Time) int64 {
+	return t.Truncate(time.Minute).Unix()
+}
+
 // DayStart returns Unix seconds at 00:00 of t's calendar day in loc.
 func DayStart(t time.Time, loc *time.Location) int64 {
 	t = t.In(loc)

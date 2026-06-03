@@ -37,6 +37,13 @@ export interface TrafficBucket {
   Bytes: number;
 }
 
+export type TrafficRange = "1h" | "1d" | "1w" | "1m";
+
+export interface TrafficSeries {
+  step: number; // seconds per bucket
+  points: { t: number; bytes: number }[];
+}
+
 export interface SourceTrafficSummary {
   id: number;
   name: string;
