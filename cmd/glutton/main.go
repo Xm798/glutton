@@ -757,13 +757,12 @@ func runRateSampler(ctx context.Context, db *gorm.DB, today, month, minuteBytes 
 				ring = ring[:len(ring)-drop]
 			}
 			ring = append(ring, sample{ts: now, bytes: cur})
-			mb := store.MinuteBucket(now)
-			if curMinute == 0 {
-				curMinute = mb
-			}
-			if mb != curMinute {
-				if b := minuteBytes.Swap(0); b > 0 && db != nil {
-					_ = store.AddMinuteSample(db, curMinute, b)
+			if mb := store.MinuteBucket(now); mb != curMinute {
+				// curMinute == 0 only on the first tick — nothing to flush yet.
+				if curMinute != 0 {
+					if b := minuteBytes.Swap(0); b > 0 && db != nil {
+						_ = store.AddMinuteSample(db, curMinute, b)
+					}
 				}
 				curMinute = mb
 			}

@@ -90,13 +90,14 @@ func (h *statsHandlers) series(c echo.Context) error {
 	end := now.Unix()
 
 	sums := make(map[int64]int64)
+	add := func(bucket, bytes int64) { sums[bucket/step*step] += bytes }
 	if useHour {
 		rows, err := store.TrafficSinceBucket(h.store, cutoff)
 		if err != nil {
 			return err
 		}
 		for _, r := range rows {
-			sums[r.HourBucket/step*step] += r.Bytes
+			add(r.HourBucket, r.Bytes)
 		}
 	} else {
 		rows, err := store.MinuteSamplesSince(h.store, cutoff)
@@ -104,7 +105,7 @@ func (h *statsHandlers) series(c echo.Context) error {
 			return err
 		}
 		for _, r := range rows {
-			sums[r.MinuteBucket/step*step] += r.Bytes
+			add(r.MinuteBucket, r.Bytes)
 		}
 	}
 
